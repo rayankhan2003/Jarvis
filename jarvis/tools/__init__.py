@@ -121,6 +121,17 @@ async def create_reminder(params: FunctionCallParams, title: str, due: str = "")
     await params.result_callback((await info.create_reminder(title, due)).as_dict())
 
 
+async def set_timer(params: FunctionCallParams, minutes: float):
+    """Start a countdown timer; Jarvis announces when it ends.
+
+    Args:
+        minutes (float): Length in minutes, e.g. 0.5 for thirty seconds.
+    """
+    from jarvis.timers import TIMERS  # timers uses tools.system; import here to avoid a cycle
+
+    await params.result_callback((await TIMERS.start_timer(max(1, round(minutes * 60)))).as_dict())
+
+
 ALL_TOOLS = [
     open_app,
     quit_app,
@@ -136,4 +147,5 @@ ALL_TOOLS = [
     get_weather,
     web_search,
     create_reminder,
+    set_timer,
 ]

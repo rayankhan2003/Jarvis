@@ -214,6 +214,44 @@ async def check_gemini(session: aiohttp.ClientSession, config: Config) -> tuple[
     return Check("Gemini brain", OK, f"{config.gemini_model}, first token in {ttft * 1000:.0f} ms"), ttft
 
 
+MISTRAL_API = "https://api.mistral.ai/v1"
+
+
+async def check_mistral(session: aiohttp.ClientSession, config: Config) -> tuple[Check, float | None]:
+    if not config.mistral_api_key:
+        return Check("Mistral brain", WARN, "no MISTRAL_API_KEY",
+                     "Free key (Experiment plan, no card): https://console.mistral.ai/api-keys"), None
+    headers = {"Authorization": f"Bearer {config.mistral_api_key}"}
+    async with session.get(f"{MISTRAL_API}/models", headers=headers) as resp:
+        if resp.status != 200:
+            return Check("Mistral brain", FAIL, f"key rejected ({resp.status})",
+                         "Check MISTRAL_API_KEY in .env, and that the Experiment plan is active"), None
+        ids = set()
+        for m in (await resp.json()).get("data", []):
+            ids.add(m.get("id"))
+            ids.update(m.get("aliases") or [])
+    missing = [m for m in (config.mistral_model, config.mistral_complex_model) if m not in ids]
+    if missing:
+        return Check("Mistral brain", FAIL, f"model not available to this key: {', '.join(missing)}",
+                     "Set MISTRAL_MODEL / MISTRAL_COMPLEX_MODEL to models listed at console.mistral.ai"), None
+    body = {"model": config.mistral_model, "stream": True, "max_tokens": 16,
+            "messages": [{"role": "user", "content": "Reply with the single word: ready"}]}
+    start = time.perf_counter()
+    async with session.post(f"{MISTRAL_API}/chat/completions", headers=headers, json=body) as resp:
+        if resp.status == 429:
+            return Check("Mistral brain", WARN, "rate limited right now (about 1 request a second on the free plan)"), None
+        if resp.status != 200:
+            return Check("Mistral brain", FAIL, f"HTTP {resp.status}: {(await resp.text())[:120]}"), None
+        async for _ in resp.content:
+            ttft = time.perf_counter() - start
+            break
+        else:
+            return Check("Mistral brain", FAIL, "empty response"), None
+    return Check("Mistral brain", OK,
+                 f"{config.mistral_model} (complex: {config.mistral_complex_model}), "
+                 f"first token in {ttft * 1000:.0f} ms"), ttft
+
+
 async def check_groq_llm(session: aiohttp.ClientSession, config: Config) -> tuple[Check, float | None]:
     if not config.groq_api_key:
         return Check("Groq brain", WARN, "no GROQ_API_KEY",
@@ -309,6 +347,8 @@ async def run_doctor(config: Config, skip_mic: bool = False) -> int:
     print("\nCloud (free tiers)")
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
+        mistral, mistral_ttft = await check_mistral(session, config)
+        add(mistral)
         gemini, gemini_ttft = await check_gemini(session, config)
         add(gemini)
         groq, groq_ttft = await check_groq_llm(session, config)
@@ -318,9 +358,10 @@ async def run_doctor(config: Config, skip_mic: bool = False) -> int:
         add(await check_ollama(session, config))
     if not config.brains():
         add(Check("Brain", FAIL, "no provider configured",
-                  "Set GEMINI_API_KEY and/or GROQ_API_KEY in .env (both free)."))
+                  "Set MISTRAL_API_KEY, GROQ_API_KEY and/or GEMINI_API_KEY in .env (all free)."))
 
-    brain_ttft = gemini_ttft or groq_ttft
+    ttfts = {"mistral": mistral_ttft, "groq": groq_ttft, "gemini": gemini_ttft}
+    brain_ttft = next((ttfts[n] for n in config.brains() if ttfts.get(n)), None)
     print("\nEstimated response time (you stop talking → Jarvis starts talking)")
     if stt_secs and brain_ttft and tts_first:
         total = VAD_STOP_SECS + stt_secs + brain_ttft + tts_first

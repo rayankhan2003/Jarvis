@@ -99,3 +99,43 @@ async def test_browser_searches_are_instant(monkeypatch, spoken, query, browser,
 @pytest.mark.parametrize("spoken", ["Search my files for the invoice", "google chrome"])
 def test_non_web_searches_go_to_the_brain(spoken):
     assert match_command(spoken) is None
+
+
+@pytest.mark.parametrize(
+    "spoken, name",
+    [
+        ("Set a timer for 10 minutes", "timer"),
+        ("Hey Jarvis, 5 minute timer", "timer"),
+        ("Timer for half an hour please", "timer"),
+        ("Set an alarm for 7:30 a.m.", "alarm"),
+        ("Wake me up at 6 in the morning", "alarm"),
+        ("Cancel the timer", "cancel_timers"),
+        ("How much time is left?", "timer_status"),
+        ("Turn on dark mode", "dark_mode"),
+        ("Switch to light mode", "light_mode"),
+        ("Make it brighter", "brighter"),
+        ("Dim the screen", "dimmer"),
+        ("Take a screenshot", "screenshot"),
+        ("Put the Mac to sleep", "sleep_mac"),
+        ("Go to sleep", "dismiss"),
+    ],
+)
+def test_timer_and_system_commands(spoken, name):
+    command = match_command(spoken)
+    assert command is not None, spoken
+    assert command.name == name
+
+
+@pytest.mark.parametrize("spoken", ["Set a timer", "Set an alarm for whenever", "Is dark mode better for my eyes?"])
+def test_vague_timer_and_system_requests_go_to_the_brain(spoken):
+    assert match_command(spoken) is None
+
+
+@pytest.mark.parametrize("spoken", ["", "Um.", "Thank you.", "Thanks for watching!", "Jarvis?", "you"])
+def test_noise(spoken):
+    assert fastpath.is_noise(spoken)
+
+
+@pytest.mark.parametrize("spoken", ["Pause", "What's the weather?"])
+def test_not_noise(spoken):
+    assert not fastpath.is_noise(spoken)

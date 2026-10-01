@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("run", help="start Jarvis (default)")
     doctor = sub.add_parser("doctor", help="check this Mac, your keys and the response time")
     doctor.add_argument("--no-mic", action="store_true", help="skip the microphone recording")
+    sub.add_parser("usage", help="show today's free-tier usage")
     say = sub.add_parser("say", help="run a typed command through the instant-command path")
     say.add_argument("text", nargs="+")
     args = parser.parse_args(argv)
@@ -31,6 +32,12 @@ def main(argv: list[str] | None = None) -> int:
         from jarvis.doctor import main as doctor_main
 
         return doctor_main(skip_mic=args.no_mic)
+
+    if args.command == "usage":
+        from jarvis.usage import Usage, report
+
+        print(report(Usage()))
+        return 0
 
     if args.command == "say":
         return asyncio.run(_say(" ".join(args.text)))

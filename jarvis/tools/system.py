@@ -11,6 +11,7 @@ import difflib
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -259,3 +260,43 @@ async def search_in_browser(query: str, browser: str = "", site: str = "google")
         return result
     where = "YouTube" if site == "youtube" else result.data["browser"] or "your browser"
     return Result(True, f"Searching {query} on {where}.", result.data)
+
+
+async def set_dark_mode(on: bool | None = None) -> Result:
+    """Turn dark mode on, off, or toggle it (``None``)."""
+    value = "not dark mode" if on is None else ("true" if on else "false")
+    script = f"tell application \"System Events\" to tell appearance preferences to set dark mode to {value}"
+    code, _, err = await osascript(script)
+    if code:
+        return Result(False, f"I couldn't change the appearance: {err}.")
+    if on is None:
+        return Result(True, "Switched.")
+    return Result(True, "Dark mode on." if on else "Light mode on.")
+
+
+BRIGHTNESS_KEYS = {"up": 144, "down": 145}
+
+
+async def change_brightness(direction: str, steps: int = 3) -> Result:
+    key = BRIGHTNESS_KEYS[direction]
+    script = f"tell application \"System Events\"\nrepeat {steps} times\nkey code {key}\nend repeat\nend tell"
+    code, _, err = await osascript(script)
+    if code:
+        return Result(False, f"I couldn't change the brightness: {err}.")
+    return Result(True, "Brighter." if direction == "up" else "Dimmer.")
+
+
+async def screenshot() -> Result:
+    folder = Path("~/Desktop").expanduser()
+    path = folder / f"Jarvis screenshot {datetime.now():%Y-%m-%d at %H.%M.%S}.png"
+    code, _, err = await run("screencapture", "-x", str(path))
+    if code:
+        return Result(False, f"I couldn't take a screenshot: {err}.")
+    return Result(True, "Screenshot saved to your desktop.", {"path": str(path)})
+
+
+async def sleep_mac() -> Result:
+    code, _, err = await run("pmset", "sleepnow")
+    if code:
+        return Result(False, f"I couldn't put the Mac to sleep: {err}.")
+    return Result(True, "Good night.")

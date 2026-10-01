@@ -152,3 +152,44 @@ async def test_unknown_browser_is_reported(monkeypatch):
     monkeypatch.setattr(system, "installed_apps", lambda: APPS)
     result = await system.open_url("github.com", "netscape")
     assert not result.ok and "couldn't find a browser" in result.say
+
+
+@pytest.mark.parametrize(
+    "on, expected",
+    [(True, "set dark mode to true"), (False, "set dark mode to false"), (None, "set dark mode to not dark mode")],
+)
+async def test_dark_mode_scripts(monkeypatch, on, expected):
+    scripts = []
+
+    async def fake_osascript(script, timeout=10.0):
+        scripts.append(script)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "osascript", fake_osascript)
+    assert (await system.set_dark_mode(on)).ok
+    assert scripts[0].endswith(expected)
+
+
+async def test_brightness_uses_the_brightness_keys(monkeypatch):
+    scripts = []
+
+    async def fake_osascript(script, timeout=10.0):
+        scripts.append(script)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "osascript", fake_osascript)
+    await system.change_brightness("down")
+    assert "key code 145" in scripts[0] and "repeat 3 times" in scripts[0]
+
+
+async def test_screenshot_goes_to_the_desktop_silently(monkeypatch):
+    calls = []
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "run", fake_run)
+    result = await system.screenshot()
+    assert result.ok and calls[0][:2] == ("screencapture", "-x")
+    assert "/Desktop/Jarvis screenshot " in calls[0][2]

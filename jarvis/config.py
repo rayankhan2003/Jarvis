@@ -29,7 +29,11 @@ def _env_float(name: str, default: float) -> float:
 
 @dataclass
 class Config:
-    # Brain: tried in this order; providers without a key are skipped.
+    # Brain: tried in `brain_order`; providers without a key are skipped.
+    brain_order: tuple[str, ...] = ("mistral", "groq", "gemini", "ollama")
+    mistral_api_key: str = ""
+    mistral_model: str = "mistral-small-latest"  # everyday requests
+    mistral_complex_model: str = "mistral-large-latest"  # multi-step plans and long requests
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
     groq_api_key: str = ""
@@ -59,6 +63,12 @@ class Config:
         load_dotenv(Path.cwd() / ".env")
         load_dotenv(HOME_DIR / ".env")
         return cls(
+            brain_order=tuple(
+                n.strip() for n in _env("JARVIS_BRAIN_ORDER", ",".join(cls.brain_order)).split(",") if n.strip()
+            ),
+            mistral_api_key=_env("MISTRAL_API_KEY"),
+            mistral_model=_env("MISTRAL_MODEL", cls.mistral_model),
+            mistral_complex_model=_env("MISTRAL_COMPLEX_MODEL", cls.mistral_complex_model),
             gemini_api_key=_env("GEMINI_API_KEY"),
             gemini_model=_env("GEMINI_MODEL", cls.gemini_model),
             groq_api_key=_env("GROQ_API_KEY"),
@@ -78,11 +88,10 @@ class Config:
 
     def brains(self) -> list[str]:
         """Names of the configured LLM providers, in failover order."""
-        names = []
-        if self.gemini_api_key:
-            names.append("gemini")
-        if self.groq_api_key:
-            names.append("groq")
-        if self.ollama_model:
-            names.append("ollama")
-        return names
+        configured = {
+            "mistral": bool(self.mistral_api_key),
+            "groq": bool(self.groq_api_key),
+            "gemini": bool(self.gemini_api_key),
+            "ollama": bool(self.ollama_model),
+        }
+        return [name for name in dict.fromkeys(self.brain_order) if configured.get(name)]

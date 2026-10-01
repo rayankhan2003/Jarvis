@@ -26,13 +26,19 @@ from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransp
 from pipecat.turns.user_mute import AlwaysUserMuteStrategy
 from pipecat.workers.runner import WorkerRunner
 
+from jarvis import conversation
 from jarvis.config import Config
 from jarvis.failover import FreeTierFailover, keep_only_messages_for
 from jarvis.fastpath import FastPath
 from jarvis.persona import system_prompt
+from jarvis.router import ModelRouter
+from jarvis.timers import TIMERS
 from jarvis.tools import ALL_TOOLS
+from jarvis.usage import Usage, UsageMeter
 from jarvis.wake import WakeWordGate, load_wake_model
 
+# Spoken replies are a sentence or two; capping them also caps free-tier tokens.
+MAX_REPLY_TOKENS = 300
 # Tools slow enough that silence would feel broken; Jarvis says so first.
 SLOW_TOOLS = {"web_search", "get_weather", "create_reminder"}
 WAKE_SOUND = "/System/Library/Sounds/Tink.aiff"
@@ -45,7 +51,15 @@ class SetupError(RuntimeError):
 def make_llms(config: Config, prompt: str) -> list:
     llms = []
     for name in config.brains():
-        if name == "gemini":
+        if name == "mistral":
+            from pipecat.services.mistral.llm import MistralLLMService
+
+            llms.append(MistralLLMService(
+                api_key=config.mistral_api_key,
+                settings=MistralLLMService.Settings(
+                    model=config.mistral_model, system_instruction=prompt, max_tokens=MAX_REPLY_TOKENS),
+            ))
+        elif name == "gemini":
             from pipecat.services.google.llm import GoogleLLMService
 
             llms.append(GoogleLLMService(
@@ -67,8 +81,8 @@ def make_llms(config: Config, prompt: str) -> list:
                 settings=OLLamaLLMService.Settings(model=config.ollama_model, system_instruction=prompt),
             ))
     if not llms:
-        raise SetupError("No brain configured. Set GEMINI_API_KEY and/or GROQ_API_KEY in .env "
-                         "(both are free), or OLLAMA_MODEL for offline use.")
+        raise SetupError("No brain configured. Set MISTRAL_API_KEY, GROQ_API_KEY and/or GEMINI_API_KEY "
+                         "in .env (all free), or OLLAMA_MODEL for offline use.")
     return llms
 
 
@@ -104,6 +118,12 @@ async def run_jarvis(config: Config):
     brain = switcher or llms[0]
     logger.info(f"Brain providers, in order: {', '.join(config.brains())}")
 
+    router = None
+    if "mistral" in config.brains() and config.mistral_complex_model != config.mistral_model:
+        mistral = llms[config.brains().index("mistral")]
+        router = ModelRouter(mistral, type(mistral).Settings, config.mistral_model, config.mistral_complex_model)
+    usage = Usage()
+
     context = LLMContext(tools=ALL_TOOLS)
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
@@ -123,6 +143,8 @@ async def run_jarvis(config: Config):
             awake_secs=config.awake_secs,
             on_wake=play_wake_sound,
             mute_while_speaking=not config.interruptions,
+            # Each "Hey Jarvis" starts a fresh, small conversation.
+            on_sleep=lambda: conversation.clear(context),
         )
 
     async def dismiss():
@@ -133,7 +155,15 @@ async def run_jarvis(config: Config):
         if switcher:
             await switcher.strategy.restore_preferred()
 
-    fastpath = FastPath(context, on_dismiss=dismiss, on_user_turn=new_user_turn)
+    def route(text: str):
+        if not router:
+            return []
+        frames = router.frames_for(text)
+        if frames:
+            logger.info(f"Using {router.current} for this request")
+        return frames
+
+    fastpath = FastPath(context, on_dismiss=dismiss, on_user_turn=new_user_turn, before_brain=route, usage=usage)
 
     pipeline = Pipeline([
         transport.input(),
@@ -145,6 +175,7 @@ async def run_jarvis(config: Config):
         tts,
         transport.output(),
         assistant_aggregator,
+        UsageMeter(usage),
     ])
 
     worker = PipelineWorker(
@@ -174,6 +205,12 @@ async def run_jarvis(config: Config):
             # The failed provider never answered; ask the new one the same thing.
             adopt(new)
             await worker.queue_frames([LLMRunFrame()])
+
+    async def announce(message: str):
+        await worker.queue_frames([TTSSpeakFrame(f"{config.honorific.capitalize()}, {message[0].lower()}{message[1:]}",
+                                                 append_to_context=False)])
+
+    TIMERS.on_fire = announce
 
     greeting = f"Jarvis online, {config.honorific}."
     if gate:
