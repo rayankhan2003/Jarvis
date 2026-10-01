@@ -119,3 +119,18 @@ async def test_long_conversations_are_trimmed_before_the_brain():
         expected_down_frames=[TranscriptionFrame],
     )
     assert len(context.get_messages()) == 12
+
+
+async def test_shutdown_says_goodbye_then_stops():
+    stopped = []
+
+    async def on_shutdown():
+        stopped.append(True)
+
+    down, _ = await run_test(
+        FastPath(LLMContext(), on_shutdown=on_shutdown),
+        frames_to_send=[transcript("Jarvis, shut down.")],
+        expected_down_frames=[TTSSpeakFrame],
+    )
+    assert down[0].text == "Shutting down. Goodbye."
+    assert stopped == [True]

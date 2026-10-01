@@ -125,11 +125,17 @@ async def open_app(name: str) -> Result:
 
 
 async def quit_app(name: str) -> Result:
-    app = resolve_app(name) or name
+    app = resolve_app(name)
+    if not app:
+        # Never tell an unknown name to quit: AppleScript can "succeed" without
+        # closing anything, and Jarvis would claim it did.
+        return Result(False, f"I couldn't find an app called {name}.")
+    if not await _running(app):
+        return Result(True, f"{app} isn't running.", {"app": app, "was_running": False})
     code, _, err = await osascript(f"tell application {applescript_string(app)} to quit")
     if code:
         return Result(False, f"I couldn't close {app}: {err or 'unknown error'}.")
-    return Result(True, f"Closed {app}.", {"app": app})
+    return Result(True, f"Closed {app}.", {"app": app, "was_running": True})
 
 
 async def get_volume() -> int | None:
@@ -240,6 +246,39 @@ async def open_url(url: str, browser: str = "") -> Result:
     if code:
         return Result(False, f"I couldn't open that page: {err}.")
     return Result(True, f"Opening it in {app or 'your browser'}.", {"url": url, "browser": app})
+
+
+# Spoken site names -> addresses, so "open YouTube" opens the site rather than an app.
+SITES = {
+    "youtube": "https://www.youtube.com",
+    "google": "https://www.google.com",
+    "gmail": "https://mail.google.com",
+    "github": "https://github.com",
+    "chatgpt": "https://chatgpt.com",
+    "claude": "https://claude.ai",
+    "facebook": "https://www.facebook.com",
+    "instagram": "https://www.instagram.com",
+    "twitter": "https://x.com",
+    "x": "https://x.com",
+    "linkedin": "https://www.linkedin.com",
+    "whatsapp web": "https://web.whatsapp.com",
+    "netflix": "https://www.netflix.com",
+    "reddit": "https://www.reddit.com",
+    "wikipedia": "https://www.wikipedia.org",
+    "amazon": "https://www.amazon.com",
+    "daraz": "https://www.daraz.pk",
+}
+
+
+async def open_site(name: str, browser: str = "") -> Result:
+    url = SITES[name]
+    result = await open_url(url, browser)
+    if not result.ok:
+        return result
+    pretty = {"youtube": "YouTube", "github": "GitHub", "chatgpt": "ChatGPT", "linkedin": "LinkedIn",
+              "whatsapp web": "WhatsApp Web"}.get(name, name.title())
+    where = f" in {result.data['browser']}" if result.data["browser"] else ""
+    return Result(True, f"Opening {pretty}{where}.", result.data)
 
 
 SEARCH_SITES = {

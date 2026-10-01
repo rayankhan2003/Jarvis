@@ -11,7 +11,7 @@ import sys
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame, TTSSpeakFrame
+from pipecat.frames.frames import EndFrame, LLMRunFrame, TTSSpeakFrame
 from pipecat.pipeline.llm_switcher import LLMSwitcher
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -163,7 +163,13 @@ async def run_jarvis(config: Config):
             logger.info(f"Using {router.current} for this request")
         return frames
 
-    fastpath = FastPath(context, on_dismiss=dismiss, on_user_turn=new_user_turn, before_brain=route, usage=usage)
+    async def shutdown():
+        # EndFrame lets the goodbye finish playing before the pipeline stops.
+        await TIMERS.cancel()
+        await worker.queue_frames([EndFrame()])
+
+    fastpath = FastPath(context, on_dismiss=dismiss, on_shutdown=shutdown, on_user_turn=new_user_turn,
+                        before_brain=route, usage=usage)
 
     pipeline = Pipeline([
         transport.input(),

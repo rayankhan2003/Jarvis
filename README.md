@@ -83,7 +83,9 @@ By default Jarvis ignores the microphone while it is speaking, so it works on la
 | "What's new in the latest Next.js release?" | Searches DuckDuckGo quietly and answers out loud | brain |
 | "Remind me to submit the assignment at 6" | Adds the reminder to Reminders | brain |
 | "Open Spotify, play something, and set the volume to 30" | Plans and runs several tools in a row | brain |
+| "Open YouTube in Brave" / "go to GitHub" | Opens the site (YouTube, GitHub, Gmail, ChatGPT, LinkedIn…) | instant |
 | "That's all" | Jarvis goes back to sleep | instant |
+| "Shut down" / "close Jarvis" | Says goodbye and quits Jarvis | instant |
 
 Try instant commands without speaking: `jarvis say "volume 30"`. See today's free-tier usage with `jarvis usage`.
 

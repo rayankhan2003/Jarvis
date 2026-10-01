@@ -193,3 +193,58 @@ async def test_screenshot_goes_to_the_desktop_silently(monkeypatch):
     result = await system.screenshot()
     assert result.ok and calls[0][:2] == ("screencapture", "-x")
     assert "/Desktop/Jarvis screenshot " in calls[0][2]
+
+
+async def test_quit_never_claims_to_close_an_unknown_app(monkeypatch):
+    scripts = []
+
+    async def fake_osascript(script, timeout=10.0):
+        scripts.append(script)
+        return 0, "", ""  # AppleScript can "succeed" without closing anything
+
+    monkeypatch.setattr(system, "osascript", fake_osascript)
+    monkeypatch.setattr(system, "installed_apps", lambda: APPS)
+    result = await system.quit_app("jarvis")
+    assert not result.ok and "couldn't find" in result.say
+    assert scripts == []
+
+
+async def test_quit_reports_an_app_that_isnt_running(monkeypatch):
+    scripts = []
+
+    async def fake_osascript(script, timeout=10.0):
+        scripts.append(script)
+        return 0, "false", ""
+
+    monkeypatch.setattr(system, "osascript", fake_osascript)
+    monkeypatch.setattr(system, "installed_apps", lambda: APPS)
+    result = await system.quit_app("spotify")
+    assert result.say == "Spotify isn't running."
+    assert all("to quit" not in s for s in scripts)
+
+
+async def test_quit_closes_a_running_app(monkeypatch):
+    scripts = []
+
+    async def fake_osascript(script, timeout=10.0):
+        scripts.append(script)
+        return 0, "true" if "is running" in script else "", ""
+
+    monkeypatch.setattr(system, "osascript", fake_osascript)
+    monkeypatch.setattr(system, "installed_apps", lambda: APPS)
+    result = await system.quit_app("spotify")
+    assert result.ok and result.say == "Closed Spotify."
+    assert scripts[-1] == 'tell application "Spotify" to quit'
+
+
+async def test_open_site_in_a_browser(monkeypatch):
+    calls = []
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "run", fake_run)
+    result = await system.open_site("youtube", "brave")
+    assert result.say == "Opening YouTube in Brave Browser."
+    assert calls == [("open", "-a", "Brave Browser", "https://www.youtube.com")]

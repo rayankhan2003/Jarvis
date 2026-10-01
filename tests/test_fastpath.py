@@ -139,3 +139,44 @@ def test_noise(spoken):
 @pytest.mark.parametrize("spoken", ["Pause", "What's the weather?"])
 def test_not_noise(spoken):
     assert not fastpath.is_noise(spoken)
+
+
+@pytest.mark.parametrize("spoken", ["Close Jarvis", "Jarvis, shut down.", "Quit Jarvis", "Turn yourself off"])
+def test_shutdown(spoken):
+    assert match_command(spoken).name == "shutdown"
+
+
+@pytest.mark.parametrize(
+    "spoken, site, browser",
+    [
+        ("Open Brave and search YouTube", "youtube", "brave"),
+        ("Open YouTube in Brave", "youtube", "brave"),
+        ("Open YouTube", "youtube", ""),
+        ("Go to GitHub", "github", ""),
+        ("Open Brave and go to Gmail", "gmail", "brave"),
+    ],
+)
+async def test_site_names_open_the_site(monkeypatch, spoken, site, browser):
+    seen = {}
+
+    async def fake_open_site(s, b=""):
+        seen.update(site=s, browser=b)
+        return Result(True, "Opening.")
+
+    monkeypatch.setattr(fastpath.system, "open_site", fake_open_site)
+    command = match_command(spoken)
+    assert command.name == "site"
+    await command.run()
+    assert seen == {"site": site, "browser": browser}
+
+
+async def test_search_youtube_for(monkeypatch):
+    seen = {}
+
+    async def fake_search(q, b="", s="google"):
+        seen.update(query=q, browser=b, site=s)
+        return Result(True, "Searching.")
+
+    monkeypatch.setattr(fastpath.system, "search_in_browser", fake_search)
+    await match_command("Search YouTube for Kaavish in Brave").run()
+    assert seen == {"query": "kaavish", "browser": "brave", "site": "youtube"}

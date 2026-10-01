@@ -67,7 +67,10 @@ def match_command(text: str) -> Command | None:
     if t in DISMISS:
         return Command("dismiss", _ok("Very good."))
 
-    if command := _match_timer(t) or _match_system(t):
+    if re.fullmatch(r"(?:(?:close|quit|exit|shut down|shutdown|turn off|kill) (?:yourself|jarvis)|shut down|shutdown|turn yourself off)", t):
+        return Command("shutdown", _ok("Shutting down. Goodbye."))
+
+    if command := _match_timer(t) or _match_system(t) or _match_site(t):
         return command
 
     if command := _match_search(t):
@@ -166,6 +169,22 @@ def is_noise(text: str) -> bool:
     return plain in NOISE or t in NOISE or len(t) < 2
 
 
+SITE = "(?:" + "|".join(sorted((re.escape(n) for n in system.SITES), key=len, reverse=True)) + ")"
+
+
+def _match_site(t: str) -> Command | None:
+    """ "open youtube", "open youtube in brave", "open brave and go to github"."""
+    for pattern in (
+        rf"(?:open|go to|launch|visit) (?P<site>{SITE})(?: (?:in|on|using) (?:the )?(?P<browser>{BROWSER}))?",
+        rf"(?:open |launch )?(?:the )?(?P<browser>{BROWSER})(?: and)? (?:open|go to|visit|search|search for) (?P<site>{SITE})",
+    ):
+        if m := re.fullmatch(pattern, t):
+            site = m.group("site")
+            browser = (m.groupdict().get("browser") or "").removesuffix(" browser").strip()
+            return Command("site", lambda site=site, browser=browser: system.open_site(site, browser))
+    return None
+
+
 def _match_search(t: str) -> Command | None:
     """Browser searches: "open brave and search talha anjum", "search X on youtube", "google X"."""
     patterns = [
@@ -173,6 +192,8 @@ def _match_search(t: str) -> Command | None:
         (rf"(?:open |launch |go to )?(?:the )?(?P<browser>{BROWSER})(?: and)? {SEARCH_VERB} (?P<q>.+)", "google"),
         # open youtube and search X / youtube play X
         (rf"(?:open |go to )?youtube(?: and)? (?:{SEARCH_VERB}|play) (?P<q>.+?)(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
+        # search youtube for X (in brave)
+        (rf"{SEARCH_VERB} youtube for (?P<q>.+?)(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
         # search X on youtube (in brave) / play X on youtube
         (rf"(?:{SEARCH_VERB}|play) (?P<q>.+?) on youtube(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
         # search X on/in brave
@@ -214,6 +235,7 @@ class FastPath(FrameProcessor):
     Args:
         context: The shared conversation, so the brain knows what was done.
         on_dismiss: Called when the user dismisses Jarvis ("that's all").
+        on_shutdown: Called when the user asks Jarvis to shut itself down.
         on_user_turn: Called for every final transcript, handled here or not.
         before_brain: Returns frames to send ahead of a request the brain will
             handle, e.g. a model switch for a complex request.
@@ -224,6 +246,7 @@ class FastPath(FrameProcessor):
         self,
         context: LLMContext,
         on_dismiss: Callable[[], Awaitable[None]] | None = None,
+        on_shutdown: Callable[[], Awaitable[None]] | None = None,
         on_user_turn: Callable[[], Awaitable[None]] | None = None,
         before_brain: Callable[[str], list[Frame]] | None = None,
         usage: Usage | None = None,
@@ -231,6 +254,7 @@ class FastPath(FrameProcessor):
         super().__init__()
         self._context = context
         self._on_dismiss = on_dismiss
+        self._on_shutdown = on_shutdown
         self._on_user_turn = on_user_turn
         self._before_brain = before_brain
         self._usage = usage
@@ -272,6 +296,8 @@ class FastPath(FrameProcessor):
         await self.push_frame(TTSSpeakFrame(result.say))
         if command.name == "dismiss" and self._on_dismiss:
             await self._on_dismiss()
+        if command.name == "shutdown" and self._on_shutdown:
+            await self._on_shutdown()
 
     async def _to_brain(self, frame: TranscriptionFrame):
         conversation.trim(self._context)
