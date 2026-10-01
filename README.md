@@ -1,0 +1,123 @@
+# JARVIS
+
+A voice-first assistant for macOS. Say **"Hey Jarvis"**, ask for something, and it answers out loud and gets it done on your Mac: opening apps, controlling music and volume, checking the weather, searching the web, setting reminders.
+
+It is designed to run **for free on a base MacBook (M1, 8 GB RAM)**: the small, latency-critical models run on the Mac, and the large-language-model "brain" uses free cloud tiers with automatic failover between providers.
+
+> **Status:** Phase 1 (voice core + Mac control). See the [roadmap](#roadmap).
+
+## How it works
+
+```mermaid
+flowchart LR
+    mic([Microphone]) --> gate[Wake word gate<br/>openWakeWord, on-device]
+    gate -- "after 'Hey Jarvis'" --> stt[Speech-to-text<br/>Groq Whisper]
+    stt --> fast{Instant<br/>command?}
+    fast -- "open Spotify, volume 40,<br/>pause, what time is it" --> act[Run it directly]
+    fast -- everything else --> brain[Brain with tools<br/>Gemini → Groq → Ollama]
+    brain <--> tools[Mac tools<br/>apps · volume · music · weather<br/>web search · reminders]
+    act --> tts[Voice<br/>Kokoro, on-device]
+    brain --> tts
+    tts --> spk([Speakers])
+```
+
+Built on [Pipecat](https://github.com/pipecat-ai/pipecat), an open-source framework for realtime voice agents. Pipecat handles audio streaming, voice activity detection and interruptions; everything in `jarvis/` is this project.
+
+### Design decisions
+
+| Problem | Decision |
+|---|---|
+| **Free tiers have daily limits.** Background conversation would burn speech-to-text quota. | A **wake-word gate** (`jarvis/wake.py`) runs openWakeWord on-device on every 80 ms of audio and drops it until it hears "Hey Jarvis". Nothing leaves the Mac until then. |
+| **A free provider hitting its limit should not mean silence.** Pipecat's built-in failover only switches on permanent errors (bad key), not on rate limits. | A custom failover strategy (`jarvis/failover.py`) treats 429s and exhausted quotas as failover reasons, benches the provider for a cooldown (1 min for rate limits, 1 h for quotas), retries the same request on the next provider, and switches back once the cooldown ends. |
+| **Simple commands shouldn't wait on an LLM.** | An **instant-command path** (`jarvis/fastpath.py`) matches commands like "open Spotify" or "volume 40" with patterns and runs them directly, with no LLM call. If a command fails (an unknown app name, say), the request falls through to the brain. |
+| **8 GB of RAM.** A fully local stack (LLM + Whisper + TTS) would push macOS into swap. | Only the small models run locally (wake word, voice activity, Kokoro voice, about 1–1.5 GB in total). The brain runs in the cloud, with an optional local Ollama model as an offline fallback. |
+| **Jarvis says its own name.** "Say 'Hey Jarvis'..." through the speakers would wake it up. | The gate ignores the wake word while Jarvis is speaking. |
+| **Not lying about actions.** | Every tool returns `ok` plus a message and never raises, and the persona prompt forbids claiming an action succeeded when it didn't. |
+
+## Setup (macOS, Apple Silicon)
+
+```bash
+# 1. System packages
+brew install python@3.12 portaudio
+
+# 2. Install
+git clone https://github.com/rayankhan2003/jarvis.git && cd jarvis
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .
+
+# 3. Free API keys (no credit card)
+cp .env.example .env
+#   GEMINI_API_KEY  → https://aistudio.google.com/apikey
+#   GROQ_API_KEY    → https://console.groq.com/keys
+
+# 4. Check everything and measure the response time on your Mac
+jarvis doctor
+
+# 5. Run
+jarvis
+```
+
+The first run downloads the voice (~330 MB) and wake-word models (~4 MB). Allow microphone access for your terminal when macOS asks. Opening and quitting apps also needs **Automation** permission, which macOS asks for the first time Jarvis controls each app.
+
+Use headphones at first: without echo cancellation, the MacBook microphone can hear Jarvis talking and interrupt it.
+
+## What you can say
+
+| Say | What happens | Path |
+|---|---|---|
+| "Hey Jarvis, open Spotify" / "quit Safari" | Opens or quits the app | instant |
+| "Volume 40" / "turn it up" / "mute" | Sets the volume | instant |
+| "Pause" / "next song" / "what's playing?" | Controls Spotify, or Apple Music if Spotify isn't running | instant |
+| "What time is it?" / "How much battery do I have?" | Answers straight away | instant |
+| "Lock the screen" | Puts the display to sleep (locks if your Mac requires a password on wake) | instant |
+| "What's the weather in Peshawar?" | Gets the weather from wttr.in | brain |
+| "Search for the latest Next.js release" | Searches DuckDuckGo and summarises the results | brain |
+| "Remind me to submit the assignment at 6" | Adds the reminder to Reminders | brain |
+| "Open Spotify, play something, and set the volume to 30" | Plans and runs several tools in a row | brain |
+| "That's all" | Jarvis goes back to sleep | instant |
+
+Try instant commands without speaking: `jarvis say "volume 30"`.
+
+## Configuration
+
+All settings live in `.env`; see [`.env.example`](.env.example). The most useful ones:
+
+- `JARVIS_VOICE`: Kokoro voice (`bm_george`, `bm_lewis`, `bm_daniel`, `bm_fable`, …)
+- `JARVIS_USER_NAME`, `JARVIS_HONORIFIC`: how Jarvis addresses you
+- `JARVIS_WAKE_THRESHOLD`: lower it if Jarvis misses "Hey Jarvis", raise it if it wakes by itself
+- `OLLAMA_MODEL`: optional offline brain, e.g. `qwen3.5:4b`
+- `JARVIS_LOCAL_STT=1`: transcribe on the Mac with MLX Whisper (`pip install -e ".[local-stt]"`)
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest          # unit tests plus processors run inside real Pipecat pipelines; no Mac needed
+ruff check .
+```
+
+```
+jarvis/
+  bot.py        pipeline assembly
+  wake.py       on-device wake word gate
+  fastpath.py   instant commands
+  failover.py   free-tier failover between LLM providers
+  persona.py    system prompt
+  doctor.py     `jarvis doctor` setup and latency checks
+  tools/        Mac control (system.py) and lookups (info.py)
+```
+
+## Roadmap
+
+- [x] **Phase 1: Voice core.** Wake word, realtime voice with interruptions, instant commands, free-tier failover, Mac control, `jarvis doctor`
+- [ ] **Phase 2: Hands.** Files, terminal and git with confirmation before anything risky; Calendar through EventKit
+- [ ] **Phase 3: Memory and eyes.** Long-term memory of preferences and projects; "what's on my screen?"
+- [ ] **Phase 4: HUD.** A Three.js interface that shows the voice, tool calls and system status live
+- [ ] **Phase 5: Proactive.** Morning briefing, meeting and build-failure alerts
+
+## Credits and licences
+
+- Code in this repository: MIT
+- [Pipecat](https://github.com/pipecat-ai/pipecat): BSD 2-Clause
+- [openWakeWord](https://github.com/dscripka/openWakeWord): Apache 2.0; its pre-trained **"hey jarvis" model is CC BY-NC-SA 4.0 (non-commercial use only)**
+- [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) voice model: Apache 2.0

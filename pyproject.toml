@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "A voice-first assistant for macOS: wake word, realtime voice, and a brain that controls your Mac."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Muhammad Riyan Khan" }]
+dependencies = [
+    "pipecat-ai[local,silero,groq,google,kokoro]>=1.12,<2",
+    "openwakeword>=0.6",
+    "onnxruntime>=1.18",
+    "ddgs>=9",
+    "python-dotenv>=1.0",
+    "numpy>=1.26",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+local-stt = ["pipecat-ai[mlx-whisper]>=1.12,<2"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # prompts and tool docstrings read better unwrapped
