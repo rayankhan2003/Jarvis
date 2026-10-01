@@ -28,6 +28,9 @@ NUMBER_WORDS = {
     "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90, "hundred": 100, "max": 100,
     "maximum": 100, "full": 100, "half": 50,
 }
+BROWSER = r"(?:brave|chrome|google chrome|safari|firefox|arc|edge|opera)(?: browser)?"
+SEARCH_VERB = r"(?:search|google|look up|find)(?: for)?"
+NOT_A_WEB_SEARCH = re.compile(r"\b(?:file|files|folder|my mac|email|emails|message|messages)\b")
 DISMISS = {"thats all", "thats it", "goodbye", "bye", "go to sleep", "sleep", "never mind",
            "nevermind", "stop listening", "dismissed"}
 
@@ -60,6 +63,9 @@ def match_command(text: str) -> Command | None:
 
     if t in DISMISS:
         return Command("dismiss", _ok("Very good."))
+
+    if command := _match_search(t):
+        return command
 
     if m := re.fullmatch(r"(?:open|launch|start)(?: up)? (?:the )?([\w .]{1,30}?)(?: app)?", t):
         target = m.group(1).strip()
@@ -105,6 +111,34 @@ def match_command(text: str) -> Command | None:
         return Command("lock", system.lock_screen)
 
     return None
+
+
+def _match_search(t: str) -> Command | None:
+    """Browser searches: "open brave and search talha anjum", "search X on youtube", "google X"."""
+    patterns = [
+        # open brave and search X / brave search X
+        (rf"(?:open |launch |go to )?(?:the )?(?P<browser>{BROWSER})(?: and)? {SEARCH_VERB} (?P<q>.+)", "google"),
+        # open youtube and search X / youtube play X
+        (rf"(?:open |go to )?youtube(?: and)? (?:{SEARCH_VERB}|play) (?P<q>.+?)(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
+        # search X on youtube (in brave) / play X on youtube
+        (rf"(?:{SEARCH_VERB}|play) (?P<q>.+?) on youtube(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
+        # search X on/in brave
+        (rf"{SEARCH_VERB} (?P<q>.+?) (?:on|in|using) (?:the )?(?P<browser>{BROWSER})", "google"),
+        # search X / google X
+        (rf"{SEARCH_VERB} (?P<q>.+)", "google"),
+    ]
+    for pattern, site in patterns:
+        if m := re.fullmatch(pattern, t):
+            query = m.group("q").strip()
+            browser = (m.groupdict().get("browser") or "").removesuffix(" browser").strip()
+            if not query or NOT_A_WEB_SEARCH.search(query) or re.fullmatch(BROWSER, query):
+                return None
+            return _search_command(query, browser, site)
+    return None
+
+
+def _search_command(query: str, browser: str, site: str) -> Command:
+    return Command("search", lambda: system.search_in_browser(query, browser, site))
 
 
 def _ok(say: str) -> Callable[[], Awaitable[Result]]:

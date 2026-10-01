@@ -12,6 +12,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote_plus
 
 APP_DIRS = [Path("/Applications"), Path("/System/Applications"), Path("~/Applications").expanduser()]
 
@@ -35,6 +36,12 @@ APP_ALIASES = {
     "reminders": "Reminders",
     "terminal": "Terminal",
     "whatsapp": "WhatsApp",
+    "brave": "Brave Browser",
+    "brave browser": "Brave Browser",
+    "firefox": "Firefox",
+    "arc": "Arc",
+    "edge": "Microsoft Edge",
+    "opera": "Opera",
     "teams": "Microsoft Teams",
     "word": "Microsoft Word",
     "excel": "Microsoft Excel",
@@ -217,10 +224,38 @@ async def lock_screen() -> Result:
     return Result(True, "Locking the screen.")
 
 
-async def open_url(url: str) -> Result:
+async def open_url(url: str, browser: str = "") -> Result:
+    """Open a page in ``browser`` (any spoken name, e.g. "brave"), or the default browser."""
     if not re.match(r"^https?://", url):
         url = "https://" + url
-    code, _, err = await run("open", url)
+    cmd = ["open", url]
+    app = ""
+    if browser:
+        app = resolve_app(browser) or ""
+        if not app:
+            return Result(False, f"I couldn't find a browser called {browser}.")
+        cmd = ["open", "-a", app, url]
+    code, _, err = await run(*cmd)
     if code:
         return Result(False, f"I couldn't open that page: {err}.")
-    return Result(True, "Opening it in your browser.", {"url": url})
+    return Result(True, f"Opening it in {app or 'your browser'}.", {"url": url, "browser": app})
+
+
+SEARCH_SITES = {
+    "google": "https://www.google.com/search?q={}",
+    "youtube": "https://www.youtube.com/results?search_query={}",
+}
+
+
+def search_url(query: str, site: str = "google") -> str:
+    return SEARCH_SITES.get(site, SEARCH_SITES["google"]).format(quote_plus(query.strip()))
+
+
+async def search_in_browser(query: str, browser: str = "", site: str = "google") -> Result:
+    """Show search results for ``query`` on Google or YouTube in a browser."""
+    site = site if site in SEARCH_SITES else "google"
+    result = await open_url(search_url(query, site), browser)
+    if not result.ok:
+        return result
+    where = "YouTube" if site == "youtube" else result.data["browser"] or "your browser"
+    return Result(True, f"Searching {query} on {where}.", result.data)

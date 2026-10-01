@@ -71,8 +71,9 @@ By default Jarvis ignores the microphone while it is speaking, so it works on la
 | "Pause" / "next song" / "what's playing?" | Controls Spotify, or Apple Music if Spotify isn't running | instant |
 | "What time is it?" / "How much battery do I have?" | Answers straight away | instant |
 | "Lock the screen" | Puts the display to sleep (locks if your Mac requires a password on wake) | instant |
+| "Open Brave and search Talha Anjum" / "search Kaavish on YouTube" / "google cricket score" | Opens the results in that browser (or your default one) | instant |
 | "What's the weather in Peshawar?" | Gets the weather from wttr.in | brain |
-| "Search for the latest Next.js release" | Searches DuckDuckGo and summarises the results | brain |
+| "What's new in the latest Next.js release?" | Searches DuckDuckGo quietly and answers out loud | brain |
 | "Remind me to submit the assignment at 6" | Adds the reminder to Reminders | brain |
 | "Open Spotify, play something, and set the volume to 30" | Plans and runs several tools in a row | brain |
 | "That's all" | Jarvis goes back to sleep | instant |

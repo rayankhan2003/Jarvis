@@ -116,3 +116,39 @@ async def test_reminder_builds_locale_independent_date(monkeypatch):
 
 async def test_reminder_rejects_bad_dates():
     assert not (await info.create_reminder("x", "six-ish")).ok
+
+
+def test_search_urls_are_encoded():
+    assert system.search_url("talha anjum") == "https://www.google.com/search?q=talha+anjum"
+    assert system.search_url("c++ & rust", "youtube") == "https://www.youtube.com/results?search_query=c%2B%2B+%26+rust"
+
+
+async def test_search_opens_in_the_named_browser(monkeypatch):
+    calls = []
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "run", fake_run)
+    result = await system.search_in_browser("talha anjum", "brave")
+    assert result.ok and result.say == "Searching talha anjum on Brave Browser."
+    assert calls == [("open", "-a", "Brave Browser", "https://www.google.com/search?q=talha+anjum")]
+
+
+async def test_search_uses_default_browser_when_none_named(monkeypatch):
+    calls = []
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "run", fake_run)
+    await system.search_in_browser("kaavish", site="youtube")
+    assert calls == [("open", "https://www.youtube.com/results?search_query=kaavish")]
+
+
+async def test_unknown_browser_is_reported(monkeypatch):
+    monkeypatch.setattr(system, "installed_apps", lambda: APPS)
+    result = await system.open_url("github.com", "netscape")
+    assert not result.ok and "couldn't find a browser" in result.say

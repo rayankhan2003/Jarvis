@@ -68,3 +68,34 @@ async def test_volume_level_is_passed_through(monkeypatch):
     monkeypatch.setattr(fastpath.system, "set_volume", fake_set_volume)
     result = await match_command("volume to 35 percent").run()
     assert result.ok and seen["level"] == 35
+
+
+@pytest.mark.parametrize(
+    "spoken, query, browser, site",
+    [
+        ("Hey Jarvis, open Brave browser and search Talha Anjum.", "talha anjum", "brave", "google"),
+        ("Open Brave and search for Talha Anjum", "talha anjum", "brave", "google"),
+        ("Search Talha Anjum on YouTube", "talha anjum", "", "youtube"),
+        ("Play Talha Anjum on YouTube in Brave", "talha anjum", "brave", "youtube"),
+        ("Open YouTube and search Kaavish", "kaavish", "", "youtube"),
+        ("Google Pakistan cricket score", "pakistan cricket score", "", "google"),
+        ("Search for best biryani in Peshawar in Chrome", "best biryani in peshawar", "chrome", "google"),
+    ],
+)
+async def test_browser_searches_are_instant(monkeypatch, spoken, query, browser, site):
+    seen = {}
+
+    async def fake_search(q, b="", s="google"):
+        seen.update(query=q, browser=b, site=s)
+        return Result(True, "Searching.")
+
+    monkeypatch.setattr(fastpath.system, "search_in_browser", fake_search)
+    command = match_command(spoken)
+    assert command is not None and command.name == "search"
+    await command.run()
+    assert seen == {"query": query, "browser": browser, "site": site}
+
+
+@pytest.mark.parametrize("spoken", ["Search my files for the invoice", "google chrome"])
+def test_non_web_searches_go_to_the_brain(spoken):
+    assert match_command(spoken) is None

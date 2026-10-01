@@ -67,13 +67,25 @@ async def lock_screen(params: FunctionCallParams):
     await params.result_callback((await system.lock_screen()).as_dict())
 
 
-async def open_url(params: FunctionCallParams, url: str):
-    """Open a web page in the default browser.
+async def open_url(params: FunctionCallParams, url: str, browser: str = ""):
+    """Open a web page in a browser.
 
     Args:
         url (str): The address, e.g. "github.com" or "https://news.ycombinator.com".
+        browser (str): Browser to use if the user named one, e.g. "Brave", "Chrome", "Safari". Leave empty for the default browser.
     """
-    await params.result_callback((await system.open_url(url)).as_dict())
+    await params.result_callback((await system.open_url(url, browser)).as_dict())
+
+
+async def search_in_browser(params: FunctionCallParams, query: str, browser: str = "", site: str = "google"):
+    """Open search results in a browser so the user can see them. Use this whenever the user asks to search, google or look something up in a browser, or to find something on YouTube. It opens the browser itself; don't call open_app first.
+
+    Args:
+        query (str): What to search for, exactly as the user said it, e.g. "Talha Anjum".
+        browser (str): Browser to use if the user named one, e.g. "Brave", "Chrome", "Safari". Leave empty for the default browser.
+        site (str): "google" for web results, or "youtube" for videos and music.
+    """
+    await params.result_callback((await system.search_in_browser(query, browser, site)).as_dict())
 
 
 async def get_time(params: FunctionCallParams):
@@ -91,7 +103,7 @@ async def get_weather(params: FunctionCallParams, location: str = ""):
 
 
 async def web_search(params: FunctionCallParams, query: str):
-    """Search the web and get the top results with short snippets. Use for news, facts you are unsure of, or anything recent.
+    """Search the web quietly and get the top results as text, so you can answer out loud. Use for news, facts you are unsure of, or anything recent. If the user wants to see results in a browser, use search_in_browser instead.
 
     Args:
         query (str): What to search for.
@@ -119,6 +131,7 @@ ALL_TOOLS = [
     battery_status,
     lock_screen,
     open_url,
+    search_in_browser,
     get_time,
     get_weather,
     web_search,
