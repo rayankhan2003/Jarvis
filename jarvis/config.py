@@ -32,8 +32,9 @@ class Config:
     # Brain: tried in `brain_order`; providers without a key are skipped.
     brain_order: tuple[str, ...] = ("mistral", "groq", "gemini", "ollama")
     mistral_api_key: str = ""
-    mistral_model: str = "mistral-small-latest"  # everyday requests
-    mistral_complex_model: str = "mistral-large-latest"  # multi-step plans and long requests
+    # Both work on the free Experiment plan; mistral-large-latest does not.
+    mistral_model: str = "ministral-8b-latest"  # everyday requests
+    mistral_complex_model: str = "ministral-14b-latest"  # multi-step plans and long requests
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
     groq_api_key: str = ""

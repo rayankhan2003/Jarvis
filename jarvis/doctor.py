@@ -217,6 +217,22 @@ async def check_gemini(session: aiohttp.ClientSession, config: Config) -> tuple[
 MISTRAL_API = "https://api.mistral.ai/v1"
 
 
+FREE_MISTRAL_MODELS = "ministral-8b-latest, ministral-14b-latest"
+
+
+async def _mistral_ttft(session: aiohttp.ClientSession, headers: dict, model: str) -> tuple[int, float | None, str]:
+    """Send a one-word request. Returns (HTTP status, seconds to first token, error text)."""
+    body = {"model": model, "stream": True, "max_tokens": 8,
+            "messages": [{"role": "user", "content": "Reply with the single word: ready"}]}
+    start = time.perf_counter()
+    async with session.post(f"{MISTRAL_API}/chat/completions", headers=headers, json=body) as resp:
+        if resp.status != 200:
+            return resp.status, None, (await resp.text())[:160]
+        async for _ in resp.content:
+            return 200, time.perf_counter() - start, ""
+    return 200, None, "empty response"
+
+
 async def check_mistral(session: aiohttp.ClientSession, config: Config) -> tuple[Check, float | None]:
     if not config.mistral_api_key:
         return Check("Mistral brain", WARN, "no MISTRAL_API_KEY",
@@ -226,30 +242,30 @@ async def check_mistral(session: aiohttp.ClientSession, config: Config) -> tuple
         if resp.status != 200:
             return Check("Mistral brain", FAIL, f"key rejected ({resp.status})",
                          "Check MISTRAL_API_KEY in .env, and that the Experiment plan is active"), None
-        ids = set()
-        for m in (await resp.json()).get("data", []):
-            ids.add(m.get("id"))
-            ids.update(m.get("aliases") or [])
-    missing = [m for m in (config.mistral_model, config.mistral_complex_model) if m not in ids]
-    if missing:
-        return Check("Mistral brain", FAIL, f"model not available to this key: {', '.join(missing)}",
-                     "Set MISTRAL_MODEL / MISTRAL_COMPLEX_MODEL to models listed at console.mistral.ai"), None
-    body = {"model": config.mistral_model, "stream": True, "max_tokens": 16,
-            "messages": [{"role": "user", "content": "Reply with the single word: ready"}]}
-    start = time.perf_counter()
-    async with session.post(f"{MISTRAL_API}/chat/completions", headers=headers, json=body) as resp:
-        if resp.status == 429:
-            return Check("Mistral brain", WARN, "rate limited right now (about 1 request a second on the free plan)"), None
-        if resp.status != 200:
-            return Check("Mistral brain", FAIL, f"HTTP {resp.status}: {(await resp.text())[:120]}"), None
-        async for _ in resp.content:
-            ttft = time.perf_counter() - start
-            break
-        else:
-            return Check("Mistral brain", FAIL, "empty response"), None
-    return Check("Mistral brain", OK,
-                 f"{config.mistral_model} (complex: {config.mistral_complex_model}), "
-                 f"first token in {ttft * 1000:.0f} ms"), ttft
+
+    # A model can be listed yet not usable on the free plan, so try each one for real.
+    # The free plan allows about one request a second, hence the pauses.
+    models = list(dict.fromkeys([config.mistral_model, config.mistral_complex_model]))
+    timings: dict[str, float] = {}
+    for i, model in enumerate(models):
+        status, ttft, error = 429, None, ""
+        for attempt in range(3):
+            await asyncio.sleep(1.2 if i or attempt else 0)
+            status, ttft, error = await _mistral_ttft(session, headers, model)
+            if status != 429:
+                break
+            await asyncio.sleep(2 * (attempt + 1))
+        if status == 429:
+            return Check("Mistral brain", WARN, f"{model}: still rate limited after 3 tries",
+                         "Wait a minute and run jarvis doctor again; Jarvis falls back to Groq meanwhile."), None
+        if status != 200 or ttft is None:
+            setting = "MISTRAL_MODEL" if model == config.mistral_model else "MISTRAL_COMPLEX_MODEL"
+            return Check("Mistral brain", FAIL, f"{model} doesn't work with this key (HTTP {status}): {error}",
+                         f"Set {setting} in .env to a model your plan allows, e.g. {FREE_MISTRAL_MODELS}"), None
+        timings[model] = ttft
+
+    detail = ", ".join(f"{m} {t * 1000:.0f} ms" for m, t in timings.items())
+    return Check("Mistral brain", OK, f"first token: {detail}"), timings[config.mistral_model]
 
 
 async def check_groq_llm(session: aiohttp.ClientSession, config: Config) -> tuple[Check, float | None]:
