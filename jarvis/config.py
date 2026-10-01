@@ -46,6 +46,7 @@ class Config:
 
     # Wake word
     always_listen: bool = False
+    interruptions: bool = False  # talk over Jarvis; needs headphones
     wake_threshold: float = 0.5
     awake_secs: float = 12.0
 
@@ -68,6 +69,7 @@ class Config:
             local_stt=_env_bool("JARVIS_LOCAL_STT", False),
             voice=_env("JARVIS_VOICE", cls.voice),
             always_listen=_env_bool("JARVIS_ALWAYS_LISTEN", False),
+            interruptions=_env_bool("JARVIS_INTERRUPTIONS", False),
             wake_threshold=_env_float("JARVIS_WAKE_THRESHOLD", cls.wake_threshold),
             awake_secs=_env_float("JARVIS_AWAKE_SECS", cls.awake_secs),
             user_name=_env("JARVIS_USER_NAME"),

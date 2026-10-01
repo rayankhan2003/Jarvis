@@ -3,9 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 from pipecat.frames.frames import ErrorFrame
+from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
 from pipecat.utils.errors import ErrorCategory
 
-from jarvis.failover import FreeTierFailover, categorize
+from jarvis.failover import FreeTierFailover, categorize, keep_only_messages_for
 
 
 class FakeService:
@@ -111,3 +112,21 @@ def test_categorize_reads_httpx_style_response():
     exc = Exception("boom")
     exc.response = SimpleNamespace(status_code=503)
     assert categorize(ErrorFrame(error="boom", exception=exc)) == ErrorCategory.SERVER
+
+
+def test_switching_provider_drops_the_old_providers_private_messages():
+    context = LLMContext()
+    context.add_message({"role": "user", "content": "hi"})
+    context.add_message(LLMSpecificMessage(llm="google", message={"type": "thought_signature"}))
+    context.add_message({"role": "assistant", "content": "Good evening."})
+
+    assert keep_only_messages_for(context, "openai") == 1
+    assert [m["role"] for m in context.get_messages("openai")] == ["user", "assistant"]
+    assert keep_only_messages_for(context, "openai") == 0
+
+
+def test_switching_back_keeps_the_new_providers_messages():
+    context = LLMContext()
+    context.add_message(LLMSpecificMessage(llm="google", message={"type": "thought_signature"}))
+    assert keep_only_messages_for(context, "google") == 0
+    assert len(context.get_messages()) == 1

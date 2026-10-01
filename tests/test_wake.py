@@ -65,7 +65,7 @@ def test_goes_back_to_sleep_after_quiet():
 
 
 async def test_stays_awake_while_jarvis_talks_and_ignores_its_own_name():
-    gate, clock, woke = make_gate()
+    gate, clock, woke = make_gate(mute_while_speaking=False)
 
     await gate.process_frame(BotStartedSpeakingFrame(), _upstream())
     assert gate._handle_audio(audio(WAKE)) is False  # "Say 'Hey Jarvis'..." from the speakers
@@ -79,6 +79,23 @@ async def test_stays_awake_while_jarvis_talks_and_ignores_its_own_name():
     await gate.process_frame(BotStoppedSpeakingFrame(), _upstream())
     clock.now = 65
     assert gate._handle_audio(audio(QUIET)) is True
+
+
+async def test_mutes_the_mic_while_jarvis_speaks_and_for_the_echo_tail():
+    gate, clock, _ = make_gate()
+    gate._handle_audio(audio(WAKE))
+    assert gate._handle_audio(audio(SPEECH)) is True
+
+    await gate.process_frame(BotStartedSpeakingFrame(), _upstream())
+    clock.now = 30  # a long answer: Jarvis's own voice must not reach speech-to-text
+    assert gate._handle_audio(audio(SPEECH)) is False
+    assert gate.awake
+
+    await gate.process_frame(BotStoppedSpeakingFrame(), _upstream())
+    clock.now = 30.2  # echo still in the room
+    assert gate._handle_audio(audio(SPEECH)) is False
+    clock.now = 30.5  # your turn
+    assert gate._handle_audio(audio(SPEECH)) is True
 
 
 def test_sleep_on_dismiss():

@@ -15,6 +15,7 @@ from collections.abc import Callable
 from loguru import logger
 from pipecat.frames.frames import ErrorFrame
 from pipecat.pipeline.service_switcher import ServiceSwitcherStrategyFailover
+from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.utils.errors import (
     ErrorCategory,
@@ -111,3 +112,18 @@ class FreeTierFailover(ServiceSwitcherStrategyFailover):
                 logger.info(f"{service.name} is available again; switching back")
                 return await self._set_active_if_available(service)
         return None
+
+
+def keep_only_messages_for(context: LLMContext, llm_id: str) -> int:
+    """Drop provider-specific messages another provider left in the conversation.
+
+    Gemini stores "thought signatures" in the context. They mean nothing to
+    Groq or Ollama, which skip them and log an error on every request after
+    a failover. Returns how many messages were dropped.
+    """
+    messages = context.get_messages()  # the context's own list, not a copy
+    kept = [m for m in messages if not isinstance(m, LLMSpecificMessage) or m.llm == llm_id]
+    dropped = len(messages) - len(kept)
+    if dropped:
+        context.set_messages(kept)
+    return dropped

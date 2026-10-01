@@ -24,6 +24,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 SAMPLE_RATE = 16000
 CHUNK = 1280  # openWakeWord expects 80 ms frames at 16 kHz
 SPEECH_RMS = 400  # int16 RMS above which we treat the mic as "someone is talking"
+ECHO_TAIL_SECS = 0.4  # keep ignoring the mic briefly after Jarvis stops, for room echo
 
 
 def load_wake_model(name: str = "hey_jarvis"):
@@ -43,6 +44,9 @@ class WakeWordGate(FrameProcessor):
         awake_secs: Seconds of quiet (no one talking) before going back to sleep.
         on_wake: Called when the wake word is detected.
         on_sleep: Called when the gate goes back to sleep.
+        mute_while_speaking: Drop microphone audio while Jarvis is talking, so
+            laptop speakers don't make Jarvis interrupt itself. Turn off with
+            headphones to be able to talk over Jarvis.
         clock: Injected for tests.
     """
 
@@ -53,6 +57,7 @@ class WakeWordGate(FrameProcessor):
         awake_secs: float = 12.0,
         on_wake: Callable[[], None] | None = None,
         on_sleep: Callable[[], None] | None = None,
+        mute_while_speaking: bool = True,
         clock: Callable[[], float] = time.monotonic,
     ):
         super().__init__()
@@ -61,7 +66,9 @@ class WakeWordGate(FrameProcessor):
         self._awake_secs = awake_secs
         self._on_wake = on_wake
         self._on_sleep = on_sleep
+        self._mute_while_speaking = mute_while_speaking
         self._clock = clock
+        self._bot_stopped_at = float("-inf")
         self._buffer = np.zeros(0, dtype=np.int16)
         self._awake_until = 0.0
         self._bot_speaking = False
@@ -97,6 +104,7 @@ class WakeWordGate(FrameProcessor):
             self._bot_speaking = True
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_speaking = False
+            self._bot_stopped_at = self._clock()
             self._extend()
 
         if isinstance(frame, InputAudioRawFrame) and direction == FrameDirection.DOWNSTREAM:
@@ -111,6 +119,9 @@ class WakeWordGate(FrameProcessor):
         samples = np.frombuffer(frame.audio, dtype=np.int16)
 
         if self.awake:
+            if self._mute_while_speaking and self._hearing_jarvis():
+                self._extend()
+                return False
             if self._bot_speaking or _rms(samples) > SPEECH_RMS:
                 self._extend()
             elif self._clock() > self._awake_until:
@@ -135,6 +146,9 @@ class WakeWordGate(FrameProcessor):
                 self.wake()
                 return True
         return False
+
+    def _hearing_jarvis(self) -> bool:
+        return self._bot_speaking or self._clock() - self._bot_stopped_at < ECHO_TAIL_SECS
 
 
 def _rms(samples: np.ndarray) -> float:

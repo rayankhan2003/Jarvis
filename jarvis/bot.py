@@ -23,10 +23,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+from pipecat.turns.user_mute import AlwaysUserMuteStrategy
 from pipecat.workers.runner import WorkerRunner
 
 from jarvis.config import Config
-from jarvis.failover import FreeTierFailover
+from jarvis.failover import FreeTierFailover, keep_only_messages_for
 from jarvis.fastpath import FastPath
 from jarvis.persona import system_prompt
 from jarvis.tools import ALL_TOOLS
@@ -106,7 +107,12 @@ async def run_jarvis(config: Config):
     context = LLMContext(tools=ALL_TOOLS)
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer(), empty_user_turn=None),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(),
+            empty_user_turn=None,
+            # Without headphones the mic hears Jarvis and would cut it off after a word.
+            user_mute_strategies=[] if config.interruptions else [AlwaysUserMuteStrategy()],
+        ),
     )
 
     gate = None
@@ -116,6 +122,7 @@ async def run_jarvis(config: Config):
             threshold=config.wake_threshold,
             awake_secs=config.awake_secs,
             on_wake=play_wake_sound,
+            mute_while_speaking=not config.interruptions,
         )
 
     async def dismiss():
@@ -153,9 +160,19 @@ async def run_jarvis(config: Config):
                 await tts.queue_frame(TTSSpeakFrame("One moment.", append_to_context=False))
 
     if switcher:
+        def adopt(service):
+            dropped = keep_only_messages_for(context, service.get_llm_adapter().id_for_llm_specific_messages)
+            if dropped:
+                logger.debug(f"Dropped {dropped} provider-specific messages for {service.name}")
+
+        @switcher.strategy.event_handler("on_service_switched")
+        async def on_service_switched(strategy, service):
+            adopt(service)
+
         @switcher.strategy.event_handler("on_failover")
         async def on_failover(strategy, failed, new, category):
             # The failed provider never answered; ask the new one the same thing.
+            adopt(new)
             await worker.queue_frames([LLMRunFrame()])
 
     greeting = f"Jarvis online, {config.honorific}."

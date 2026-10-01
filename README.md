@@ -31,7 +31,8 @@ Built on [Pipecat](https://github.com/pipecat-ai/pipecat), an open-source framew
 | **A free provider hitting its limit should not mean silence.** Pipecat's built-in failover only switches on permanent errors (bad key), not on rate limits. | A custom failover strategy (`jarvis/failover.py`) treats 429s and exhausted quotas as failover reasons, benches the provider for a cooldown (1 min for rate limits, 1 h for quotas), retries the same request on the next provider, and switches back once the cooldown ends. |
 | **Simple commands shouldn't wait on an LLM.** | An **instant-command path** (`jarvis/fastpath.py`) matches commands like "open Spotify" or "volume 40" with patterns and runs them directly, with no LLM call. If a command fails (an unknown app name, say), the request falls through to the brain. |
 | **8 GB of RAM.** A fully local stack (LLM + Whisper + TTS) would push macOS into swap. | Only the small models run locally (wake word, voice activity, Kokoro voice, about 1–1.5 GB in total). The brain runs in the cloud, with an optional local Ollama model as an offline fallback. |
-| **Jarvis says its own name.** "Say 'Hey Jarvis'..." through the speakers would wake it up. | The gate ignores the wake word while Jarvis is speaking. |
+| **Laptop speakers feed back into the microphone.** Jarvis heard itself, took it as the user interrupting, and stopped after one word. It could also wake itself by saying "Hey Jarvis". | The gate drops microphone audio while Jarvis speaks and for a short echo tail after; Pipecat's user-mute strategy backs it up. Interrupting is opt-in for headphone users. |
+| **Switching provider mid-conversation.** Gemini leaves Gemini-only "thought signatures" in the context, which other providers can't read. | On every switch, provider-specific messages from other providers are dropped from the context. |
 | **Not lying about actions.** | Every tool returns `ok` plus a message and never raises, and the persona prompt forbids claiming an action succeeded when it didn't. |
 
 ## Setup (macOS, Apple Silicon)
@@ -59,7 +60,7 @@ jarvis
 
 The first run downloads the voice (~330 MB) and wake-word models (~4 MB). Allow microphone access for your terminal when macOS asks. Opening and quitting apps also needs **Automation** permission, which macOS asks for the first time Jarvis controls each app.
 
-Use headphones at first: without echo cancellation, the MacBook microphone can hear Jarvis talking and interrupt it.
+By default Jarvis ignores the microphone while it is speaking, so it works on laptop speakers without cutting itself off. With headphones, set `JARVIS_INTERRUPTIONS=1` to be able to talk over it.
 
 ## What you can say
 
@@ -84,6 +85,7 @@ All settings live in `.env`; see [`.env.example`](.env.example). The most useful
 
 - `JARVIS_VOICE`: Kokoro voice (`bm_george`, `bm_lewis`, `bm_daniel`, `bm_fable`, …)
 - `JARVIS_USER_NAME`, `JARVIS_HONORIFIC`: how Jarvis addresses you
+- `JARVIS_INTERRUPTIONS=1`: talk over Jarvis to interrupt it (headphones only)
 - `JARVIS_WAKE_THRESHOLD`: lower it if Jarvis misses "Hey Jarvis", raise it if it wakes by itself
 - `OLLAMA_MODEL`: optional offline brain, e.g. `qwen3.5:4b`
 - `JARVIS_LOCAL_STT=1`: transcribe on the Mac with MLX Whisper (`pip install -e ".[local-stt]"`)
