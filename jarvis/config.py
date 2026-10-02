@@ -38,7 +38,10 @@ class Config:
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
     groq_api_key: str = ""
-    groq_llm_model: str = "openai/gpt-oss-20b"
+    # The big brain: hard questions and multi-step plans go here (free on Groq).
+    groq_llm_model: str = "openai/gpt-oss-120b"
+    groq_reasoning: str = "low"  # how long it thinks first: low, medium, high
+    smart_brain: bool = True  # send complex requests to Groq even when Mistral comes first
     ollama_model: str = ""  # e.g. "qwen3.5:4b"; empty disables the offline brain
     ollama_url: str = "http://localhost:11434/v1"
 
@@ -55,9 +58,12 @@ class Config:
     wake_threshold: float = 0.5
     awake_secs: float = 12.0
 
-    # Persona
+    # Persona and what Jarvis knows about you
     user_name: str = ""
     honorific: str = "sir"
+    city: str = ""  # default for the weather, e.g. "Peshawar"
+    music_taste: tuple[str, ...] = ()  # what "play some music" picks from
+    browser: str = ""  # default browser for searches and music, e.g. "Brave"
 
     @classmethod
     def load(cls) -> Config:
@@ -74,6 +80,8 @@ class Config:
             gemini_model=_env("GEMINI_MODEL", cls.gemini_model),
             groq_api_key=_env("GROQ_API_KEY"),
             groq_llm_model=_env("GROQ_LLM_MODEL", cls.groq_llm_model),
+            groq_reasoning=_env("GROQ_REASONING", cls.groq_reasoning),
+            smart_brain=_env_bool("JARVIS_SMART_BRAIN", True),
             ollama_model=_env("OLLAMA_MODEL"),
             ollama_url=_env("OLLAMA_URL", cls.ollama_url),
             groq_stt_model=_env("GROQ_STT_MODEL", cls.groq_stt_model),
@@ -85,6 +93,9 @@ class Config:
             awake_secs=_env_float("JARVIS_AWAKE_SECS", cls.awake_secs),
             user_name=_env("JARVIS_USER_NAME"),
             honorific=_env("JARVIS_HONORIFIC", cls.honorific),
+            city=_env("JARVIS_CITY"),
+            music_taste=tuple(t.strip() for t in _env("JARVIS_MUSIC_TASTE").split(",") if t.strip()),
+            browser=_env("JARVIS_BROWSER"),
         )
 
     def brains(self) -> list[str]:

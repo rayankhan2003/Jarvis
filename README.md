@@ -31,7 +31,9 @@ Built on [Pipecat](https://github.com/pipecat-ai/pipecat), an open-source framew
 | **A free provider hitting its limit should not mean silence.** Pipecat's built-in failover only switches on permanent errors (bad key), not on rate limits. | A custom failover strategy (`jarvis/failover.py`) treats 429s and exhausted quotas as failover reasons, benches the provider for a cooldown (1 min for rate limits, 1 h for quotas), retries the same request on the next provider, and switches back once the cooldown ends. |
 | **Simple commands shouldn't wait on an LLM.** | An **instant-command path** (`jarvis/fastpath.py`) matches commands like "open Spotify" or "volume 40" with patterns and runs them directly, with no LLM call. If a command fails (an unknown app name, say), the request falls through to the brain. |
 | **Free tiers run out.** Long sessions resend the whole conversation with every request, and background noise turns into speech-to-text calls. | The conversation is cleared each time Jarvis goes back to sleep and capped at six exchanges while awake; noise and empty transcripts are dropped before the brain; replies are capped at 300 tokens; timers, alarms, system controls and browser searches run as instant commands. `jarvis usage` shows what's left. |
-| **Big models are slow and use more quota; small ones can't plan.** | `jarvis/router.py` sends multi-step or "thinking" requests (plan, compare, write…) to a larger model (Ministral 14B on the free plan) and everything else to a faster one (Ministral 8B), using string rules on the Mac, so choosing costs no API call. |
+| **Big models are slow and use more quota; small ones can't think.** | `jarvis/router.py` sends multi-step or "thinking" requests (explain, compare, plan, should I…) to a big brain, GPT-OSS 120B on Groq's free tier, for that one turn, and everything else to Ministral 8B. The choice is string rules on the Mac, so it costs no API call; if the big brain is rate limited, Ministral 14B takes the request instead. |
+| **A voice assistant should know who it's talking to.** | `jarvis/memory.py` keeps facts you ask it to remember in a file on the Mac and puts them in every brain's instructions, updated the moment they change. Your city, music taste and browser come from `.env`. Remembering, forgetting and recalling cost no API request. |
+| **Search snippets are two lines and often out of date.** | Web search reads the text of the top three pages (scripts, menus and footers stripped, capped per page) so answers about news, prices and scores are current. |
 | **8 GB of RAM.** A fully local stack (LLM + Whisper + TTS) would push macOS into swap. | Only the small models run locally (wake word, voice activity, Kokoro voice, about 1–1.5 GB in total). The brain runs in the cloud, with an optional local Ollama model as an offline fallback. |
 | **Laptop speakers feed back into the microphone.** Jarvis heard itself, took it as the user interrupting, and stopped after one word. It could also wake itself by saying "Hey Jarvis". | The gate drops microphone audio while Jarvis speaks and for a short echo tail after; Pipecat's user-mute strategy backs it up. Interrupting is opt-in for headphone users. |
 | **Switching provider mid-conversation.** Gemini leaves Gemini-only "thought signatures" in the context, which other providers can't read. | On every switch, provider-specific messages from other providers are dropped from the context. |
@@ -85,6 +87,9 @@ By default Jarvis ignores the microphone while it is speaking, so it works on la
 | "Open Spotify, play something, and set the volume to 30" | Plans and runs several tools in a row | brain |
 | "Play some music" / "play something chill" / "play Talha Anjum" / "play Blinding Lights in Brave" | Starts playing on YouTube (picks something itself if you don't name a song); similar songs follow | instant |
 | "Open YouTube in Brave" / "go to GitHub" | Opens the site (YouTube, GitHub, Gmail, ChatGPT, LinkedIn…) | instant |
+| "Remember that my sister's name is Ayesha" / "what do you know about me?" / "forget my sister's name" | Saves, recalls or forgets facts about you | instant |
+| "What's the weather?" / "how's the weather in Lahore?" | Weather for your city or the one you name | instant |
+| "Explain how black holes work" / "should I learn Rust or Go?" | Answered by the big brain | brain (GPT-OSS 120B) |
 | "That's all" | Jarvis goes back to sleep | instant |
 | "Shut down" / "close Jarvis" | Says goodbye and quits Jarvis | instant |
 
@@ -98,6 +103,8 @@ All settings live in `.env`; see [`.env.example`](.env.example). The most useful
 - `JARVIS_USER_NAME`, `JARVIS_HONORIFIC`: how Jarvis addresses you
 - `JARVIS_INTERRUPTIONS=1`: talk over Jarvis to interrupt it (headphones only)
 - `JARVIS_WAKE_THRESHOLD`: lower it if Jarvis misses "Hey Jarvis", raise it if it wakes by itself
+- `JARVIS_CITY`, `JARVIS_MUSIC_TASTE`, `JARVIS_BROWSER`: what Jarvis knows about you
+- `GROQ_LLM_MODEL`, `GROQ_REASONING`, `JARVIS_SMART_BRAIN`: the big brain for complex requests
 - `JARVIS_BRAIN_ORDER`: which providers to try first, e.g. `groq,mistral,gemini` if Groq is faster for you
 - `MISTRAL_MODEL`, `MISTRAL_COMPLEX_MODEL`: the everyday and complex-request models
 - `OLLAMA_MODEL`: optional offline brain, e.g. `qwen3.5:4b`
@@ -120,6 +127,7 @@ jarvis/
   router.py     small vs large model per request, without an API call
   conversation.py  keeps the context sent to the brain small
   usage.py      local free-tier usage counter (`jarvis usage`)
+  memory.py     facts about the user, kept on the Mac
   timers.py     timers and alarms
   persona.py    system prompt
   doctor.py     `jarvis doctor` setup and latency checks
@@ -132,7 +140,8 @@ jarvis/
 - [x] **Free-tier savings.** Mistral with small/large routing, context clearing, noise filtering, usage counter
 - [x] **Timers, alarms and system controls** as instant commands
 - [ ] **Phase 2: Hands.** Files, terminal and git with confirmation before anything risky; Calendar through EventKit
-- [ ] **Phase 3: Memory and eyes.** Long-term memory of preferences and projects; "what's on my screen?"
+- [x] **Smarter brain.** Big brain for complex requests, memory, profile, web pages instead of snippets
+- [ ] **Phase 3: Eyes.** "What's on my screen?"
 - [ ] **Phase 4: HUD.** A Three.js interface that shows the voice, tool calls and system status live
 - [ ] **Phase 5: Proactive.** Morning briefing, meeting and build-failure alerts
 

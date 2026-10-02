@@ -30,13 +30,15 @@ from jarvis import conversation
 from jarvis.config import Config
 from jarvis.failover import FreeTierFailover, keep_only_messages_for
 from jarvis.fastpath import FastPath
+from jarvis.memory import MEMORY
 from jarvis.persona import system_prompt
-from jarvis.router import ModelRouter
+from jarvis.router import BrainRouter, ModelRouter
 from jarvis.timers import TIMERS
-from jarvis.tools import ALL_TOOLS
+from jarvis.tools import ALL_TOOLS, info, system
 from jarvis.usage import Usage, UsageMeter
 from jarvis.wake import WakeWordGate, load_wake_model
 
+REASONING = {"low", "medium", "high"}
 # Spoken replies are a sentence or two; capping them also caps free-tier tokens.
 MAX_REPLY_TOKENS = 300
 # Tools slow enough that silence would feel broken; Jarvis says so first.
@@ -71,7 +73,9 @@ def make_llms(config: Config, prompt: str) -> list:
 
             llms.append(GroqLLMService(
                 api_key=config.groq_api_key,
-                settings=GroqLLMService.Settings(model=config.groq_llm_model, system_instruction=prompt),
+                settings=GroqLLMService.Settings(
+                    model=config.groq_llm_model, system_instruction=prompt,
+                    reasoning_effort=config.groq_reasoning if config.groq_reasoning in REASONING else "low"),
             ))
         elif name == "ollama":
             from pipecat.services.ollama.llm import OLLamaLLMService
@@ -107,7 +111,11 @@ def play_wake_sound():
 
 
 async def run_jarvis(config: Config):
-    prompt = system_prompt(config)
+    # The user's profile: defaults the tools fall back on.
+    system.DEFAULT_BROWSER = config.browser
+    system.MUSIC_TASTE = config.music_taste
+    info.HOME_CITY = config.city
+    prompt = system_prompt(config, memories=MEMORY.prompt_block())
 
     transport = LocalAudioTransport(LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True))
     stt = make_stt(config)
@@ -118,10 +126,24 @@ async def run_jarvis(config: Config):
     brain = switcher or llms[0]
     logger.info(f"Brain providers, in order: {', '.join(config.brains())}")
 
+    names = config.brains()
     router = None
-    if "mistral" in config.brains() and config.mistral_complex_model != config.mistral_model:
-        mistral = llms[config.brains().index("mistral")]
+    if "mistral" in names and config.mistral_complex_model != config.mistral_model:
+        mistral = llms[names.index("mistral")]
         router = ModelRouter(mistral, type(mistral).Settings, config.mistral_model, config.mistral_complex_model)
+    # The big brain: complex requests go to Groq's large model when it isn't first already.
+    big_brain = None
+    if switcher and config.smart_brain and "groq" in names and names[0] != "groq":
+        big_brain = BrainRouter(switcher.strategy, llms[names.index("groq")])
+        logger.info(f"Big brain for complex requests: {config.groq_llm_model}")
+
+    async def refresh_prompt():
+        # Memory changed: every brain gets the new instructions for the next request.
+        new_prompt = system_prompt(config, memories=MEMORY.prompt_block())
+        for llm in llms:
+            await llm._update_settings(type(llm).Settings(system_instruction=new_prompt))
+
+    MEMORY.on_change = refresh_prompt
     usage = Usage()
 
     context = LLMContext(tools=ALL_TOOLS)
@@ -156,12 +178,13 @@ async def run_jarvis(config: Config):
             await switcher.strategy.restore_preferred()
 
     def route(text: str):
-        if not router:
-            return []
-        frames = router.frames_for(text)
-        if frames:
+        if big_brain and (frames := big_brain.frames_for(text)):
+            logger.info(f"Using the big brain ({config.groq_llm_model}) for this request")
+            return frames
+        if router and (frames := router.frames_for(text)):
             logger.info(f"Using {router.current} for this request")
-        return frames
+            return frames
+        return []
 
     async def shutdown():
         # EndFrame lets the goodbye finish playing before the pipeline stops.

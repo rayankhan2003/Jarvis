@@ -349,3 +349,90 @@ async def test_find_youtube_video_reads_the_results_page(monkeypatch, page, vide
 
     monkeypatch.setattr(aiohttp, "ClientSession", FakeSession)
     assert await system.find_youtube_video("talha anjum") == video
+
+
+def test_music_taste_is_used_when_no_mood_given():
+    assert system.pick_music("", 10, taste=("Kaavish",)) == "Kaavish songs mix"
+    assert system.pick_music("workout", 10, taste=("Kaavish",)) == "workout music mix"
+
+
+async def test_default_browser_is_used_when_none_named(monkeypatch):
+    calls = []
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "run", fake_run)
+    monkeypatch.setattr(system, "DEFAULT_BROWSER", "brave")
+    monkeypatch.setattr(system, "installed_apps", lambda: APPS)
+    await system.open_url("github.com")
+    await system.open_url("github.com", "safari")
+    assert calls[0][:3] == ("open", "-a", "Brave Browser")
+    assert calls[1][:3] == ("open", "-a", "Safari")
+
+
+async def test_weather_uses_home_city(monkeypatch):
+    seen = []
+
+    class FakeResp:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        async def json(self, content_type=None):
+            return {}
+
+    class FakeSession:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def get(self, url, headers=None):
+            seen.append(url)
+            return FakeResp()
+
+    monkeypatch.setattr(info.aiohttp, "ClientSession", FakeSession)
+    monkeypatch.setattr(info, "HOME_CITY", "Peshawar")
+    await info.weather()
+    await info.weather("Lahore")
+    assert seen == ["https://wttr.in/Peshawar?format=j1", "https://wttr.in/Lahore?format=j1"]
+
+
+def test_page_text_keeps_the_article_and_drops_the_clutter():
+    html = """<html><head><script>var x = 'a very long script that should never be read aloud';</script></head>
+    <body><nav>Home | About | Contact us today for the best deals around</nav>
+    <article><p>Pakistan beat Australia by five wickets in the final match played in Lahore on Sunday.</p>
+    <p>Short</p></article><footer>Copyright 2026 some site with a long footer line here</footer></body></html>"""
+    text = info.page_text(html)
+    assert text == "Pakistan beat Australia by five wickets in the final match played in Lahore on Sunday."
+
+
+async def test_web_search_reads_the_top_pages(monkeypatch):
+    import ddgs
+
+    class FakeDDGS:
+        def text(self, query, max_results=5):
+            return [{"title": f"t{i}", "body": f"b{i}", "href": f"https://e.com/{i}"} for i in range(5)]
+
+    async def fake_read(url, timeout=5.0):
+        return "" if url.endswith("/1") else f"content of {url}"
+
+    monkeypatch.setattr(ddgs, "DDGS", FakeDDGS)
+    monkeypatch.setattr(info, "read_page", fake_read)
+    result = await info.web_search("pakistan cricket")
+    results = result.data["results"]
+    assert results[0]["content"] == "content of https://e.com/0"
+    assert "content" not in results[1]  # page couldn't be read: snippet only
+    assert results[2]["content"] == "content of https://e.com/2"
+    assert "content" not in results[3]  # only the top three are read

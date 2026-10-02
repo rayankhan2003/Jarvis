@@ -46,7 +46,7 @@ def test_instant_commands(spoken, name):
     "spoken",
     [
         "Open the readme file in my portfolio project",
-        "What's the weather like in Peshawar?",
+        "Is it going to rain tomorrow in Peshawar?",
         "Remind me to call mum at six",
         "Open github and check my pull requests",
         "Set the volume to something reasonable",

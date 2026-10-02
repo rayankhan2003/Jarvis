@@ -231,10 +231,16 @@ async def lock_screen() -> Result:
     return Result(True, "Locking the screen.")
 
 
+# Set from the user's profile at startup (JARVIS_BROWSER, JARVIS_MUSIC_TASTE).
+DEFAULT_BROWSER = ""
+MUSIC_TASTE: tuple[str, ...] = ()
+
+
 async def open_url(url: str, browser: str = "") -> Result:
-    """Open a page in ``browser`` (any spoken name, e.g. "brave"), or the default browser."""
+    """Open a page in ``browser`` (any spoken name, e.g. "brave"), or the user's usual browser."""
     if not re.match(r"^https?://", url):
         url = "https://" + url
+    browser = browser or DEFAULT_BROWSER
     cmd = ["open", url]
     app = ""
     if browser:
@@ -373,12 +379,17 @@ MOOD_QUERIES = {
 }
 
 
-def pick_music(mood: str = "", hour: int | None = None) -> str:
-    """A search for when the user doesn't name a song: by mood, else by time of day."""
+def pick_music(mood: str = "", hour: int | None = None, taste: tuple[str, ...] | None = None) -> str:
+    """A search for when the user doesn't name a song: by mood, else their taste, else time of day."""
     mood = mood.strip().lower()
     for word in sorted(MOOD_QUERIES, key=len, reverse=True):  # "workout" before "work"
         if word in mood:
             return MOOD_QUERIES[word]
+    taste = MUSIC_TASTE if taste is None else taste
+    if taste:
+        import random
+
+        return f"{random.choice(taste)} songs mix"
     hour = datetime.now().hour if hour is None else hour
     if 5 <= hour < 12:
         return "morning chill songs mix"

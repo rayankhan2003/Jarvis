@@ -18,6 +18,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from jarvis import conversation
+from jarvis.memory import MEMORY
 from jarvis.timers import TIMERS, parse_clock, parse_duration
 from jarvis.tools import info, system
 from jarvis.tools.system import Result
@@ -69,6 +70,9 @@ def match_command(text: str) -> Command | None:
 
     if re.fullmatch(r"(?:(?:close|quit|exit|shut down|shutdown|turn off|kill) (?:yourself|jarvis)|shut down|shutdown|turn yourself off)", t):
         return Command("shutdown", _ok("Shutting down. Goodbye."))
+
+    if command := _match_memory(text, t) or _match_weather(t):
+        return command
 
     if command := _match_timer(t) or _match_system(t) or _match_site(t):
         return command
@@ -122,6 +126,38 @@ def match_command(text: str) -> Command | None:
     if t in {"lock", "lock screen", "lock the screen", "lock my mac", "lock the mac"}:
         return Command("lock", system.lock_screen)
 
+    return None
+
+
+RECALL = {"what do you remember", "what do you remember about me", "what do you know about me",
+          "what do you know", "tell me what you know about me", "what have you remembered"}
+
+
+def _match_memory(raw: str, t: str) -> Command | None:
+    """ "Remember that my sister's name is Ayesha", "forget my sister's name", "what do you know about me"."""
+    cleaned = re.sub(r"^\W*(?:(?:hey|ok|okay|hi)\s+)?jarvis\W*", "", raw.strip(), flags=re.I)
+    if m := re.match(r"(?:please\s+)?remember(?:\s+that)?[\s,:]+(?P<fact>.+?)[\s.!]*$", cleaned, re.I):
+        fact = m.group("fact")
+        if not re.match(r"to\s", fact, re.I):  # "remember to call mum" is a reminder, not a fact
+            return Command("remember", lambda: MEMORY.remember(fact))
+    if m := re.fullmatch(r"forget(?: about| that)? (?P<about>.+)", t):
+        about = m.group("about")
+        if about not in {"it", "that", "about it"}:
+            return Command("forget", lambda: MEMORY.forget(about))
+    if t in RECALL:
+        return Command("recall", MEMORY.recall)
+    return None
+
+
+def _match_weather(t: str) -> Command | None:
+    m = re.fullmatch(
+        r"(?:(?:whats|what is|hows|how is) )?(?:the )?weather(?: like)?(?: (?:in|for|at) (?P<city>[a-z ]+?))?"
+        r"(?: today| now| right now| outside)?",
+        t,
+    )
+    if m:
+        city = m.group("city") or ""
+        return Command("weather", lambda: info.weather(city))
     return None
 
 

@@ -132,6 +132,17 @@ async def create_reminder(params: FunctionCallParams, title: str, due: str = "")
     await params.result_callback((await info.create_reminder(title, due)).as_dict())
 
 
+async def remember(params: FunctionCallParams, fact: str):
+    """Save something about the user to remember from now on, e.g. a name, preference or plan.
+
+    Args:
+        fact (str): One short sentence, e.g. "Rayan's sister is called Ayesha".
+    """
+    from jarvis.memory import MEMORY
+
+    await params.result_callback((await MEMORY.remember(fact)).as_dict())
+
+
 async def set_timer(params: FunctionCallParams, minutes: float):
     """Start a countdown timer; Jarvis announces when it ends.
 
@@ -160,4 +171,5 @@ ALL_TOOLS = [
     web_search,
     create_reminder,
     set_timer,
+    remember,
 ]

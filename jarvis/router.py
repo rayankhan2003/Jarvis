@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import re
 
-from pipecat.frames.frames import LLMUpdateSettingsFrame
+from pipecat.frames.frames import LLMUpdateSettingsFrame, ManuallySwitchServiceFrame
 
 CHAIN = re.compile(r"\b(?:and then|then|after that|afterwards|followed by|once that's done)\b")
 THINKING = re.compile(
     r"\b(?:plan|compare|explain why|analy[sz]e|step by step|write|draft|summari[sz]e|debug|"
-    r"pros and cons|figure out|work out|research|recommend)\b"
+    r"pros and cons|figure out|work out|research|recommend|explain|why|how does|how do|how can|"
+    r"difference between|tell me about|what do you think|should i|help me|teach me|ideas? for)\b"
 )
 ACTIONS = re.compile(
     r"\b(?:open|close|quit|play|pause|search|set|turn|remind|send|create|find|start|lock|check|tell)\b"
@@ -61,3 +62,28 @@ class ModelRouter:
             return []
         self._current = wanted
         return [LLMUpdateSettingsFrame(delta=self._settings_cls(model=wanted), service=self._service)]
+
+
+class BrainRouter:
+    """Sends complex requests to a bigger model on another provider for one turn.
+
+    The everyday brain answers simple requests; a complex one switches the
+    provider switcher to the big brain. The next turn's ``restore_preferred``
+    switches back. Nothing is switched while the big brain is unavailable
+    (rate limited, out of quota), so Jarvis never waits on a benched provider.
+
+    Args:
+        strategy: The switcher's ``FreeTierFailover`` strategy.
+        big: The big-brain LLM service.
+    """
+
+    def __init__(self, strategy, big):
+        self._strategy = strategy
+        self._big = big
+
+    def frames_for(self, text: str) -> list:
+        if not is_complex(text) or not self._strategy.available(self._big):
+            return []
+        if self._strategy.active_service is self._big:
+            return []
+        return [ManuallySwitchServiceFrame(service=self._big)]

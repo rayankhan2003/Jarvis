@@ -39,7 +39,7 @@ async def test_instant_command_is_answered_without_the_brain(monkeypatch):
 async def test_other_requests_reach_the_brain():
     await run_test(
         FastPath(LLMContext()),
-        frames_to_send=[transcript("What's the weather like in Lahore?")],
+        frames_to_send=[transcript("Is it going to rain tomorrow in Lahore?")],
         expected_down_frames=[TranscriptionFrame],
     )
 
