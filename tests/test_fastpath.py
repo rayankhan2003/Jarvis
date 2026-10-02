@@ -46,7 +46,6 @@ def test_instant_commands(spoken, name):
     "spoken",
     [
         "Open the readme file in my portfolio project",
-        "Play some relaxing jazz",
         "What's the weather like in Peshawar?",
         "Remind me to call mum at six",
         "Open github and check my pull requests",
@@ -76,7 +75,6 @@ async def test_volume_level_is_passed_through(monkeypatch):
         ("Hey Jarvis, open Brave browser and search Talha Anjum.", "talha anjum", "brave", "google"),
         ("Open Brave and search for Talha Anjum", "talha anjum", "brave", "google"),
         ("Search Talha Anjum on YouTube", "talha anjum", "", "youtube"),
-        ("Play Talha Anjum on YouTube in Brave", "talha anjum", "brave", "youtube"),
         ("Open YouTube and search Kaavish", "kaavish", "", "youtube"),
         ("Google Pakistan cricket score", "pakistan cricket score", "", "google"),
         ("Search for best biryani in Peshawar in Chrome", "best biryani in peshawar", "chrome", "google"),
@@ -180,3 +178,38 @@ async def test_search_youtube_for(monkeypatch):
     monkeypatch.setattr(fastpath.system, "search_in_browser", fake_search)
     await match_command("Search YouTube for Kaavish in Brave").run()
     assert seen == {"query": "kaavish", "browser": "brave", "site": "youtube"}
+
+
+@pytest.mark.parametrize(
+    "spoken, query, browser, mood",
+    [
+        ("Play some music", "", "", ""),
+        ("Hey Jarvis, play music.", "", "", ""),
+        ("Play something chill", "", "", "chill"),
+        ("Play some music for studying", "", "", "studying"),
+        ("Play some music in Brave", "", "brave", ""),
+        ("Play Talha Anjum", "talha anjum", "", ""),
+        ("Play Talha Anjum on YouTube in Brave", "talha anjum", "brave", ""),
+        ("Play some relaxing jazz", "relaxing jazz", "", ""),
+        ("Put on some workout music", "workout music", "", ""),
+        ("Play Blinding Lights by The Weeknd on YouTube in Brave", "blinding lights by the weeknd", "brave", ""),
+    ],
+)
+async def test_play_requests_play_instead_of_searching(monkeypatch, spoken, query, browser, mood):
+    seen = {}
+
+    async def fake_play(q="", b="", m=""):
+        seen.update(query=q, browser=b, mood=m)
+        return Result(True, "Playing.")
+
+    monkeypatch.setattr(fastpath.system, "play_youtube", fake_play)
+    command = match_command(spoken)
+    assert command is not None and command.name == "play_music", spoken
+    await command.run()
+    assert seen == {"query": query, "browser": browser, "mood": mood}
+
+
+@pytest.mark.parametrize("spoken, name", [("Play", "play"), ("Resume", "play"), ("Pause", "pause"),
+                                          ("Search Talha Anjum on YouTube", "search")])
+def test_resume_and_search_are_unchanged(spoken, name):
+    assert match_command(spoken).name == name

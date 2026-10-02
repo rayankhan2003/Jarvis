@@ -88,6 +88,17 @@ async def search_in_browser(params: FunctionCallParams, query: str, browser: str
     await params.result_callback((await system.search_in_browser(query, browser, site)).as_dict())
 
 
+async def play_music(params: FunctionCallParams, query: str = "", mood: str = "", browser: str = ""):
+    """Start playing music or a video on YouTube right away (similar songs follow). Use this whenever the user asks to play something; don't search instead.
+
+    Args:
+        query (str): Song, artist or video, e.g. "Talha Anjum" or "Blinding Lights". Leave empty to let Jarvis choose.
+        mood (str): When no song is named, the kind of music, e.g. "chill", "workout", "study".
+        browser (str): Browser to use if the user named one, e.g. "Brave". Leave empty for the default browser.
+    """
+    await params.result_callback((await system.play_youtube(query, browser, mood)).as_dict())
+
+
 async def get_time(params: FunctionCallParams):
     """Get the current local date and time."""
     await params.result_callback(info.get_time().as_dict())
@@ -143,6 +154,7 @@ ALL_TOOLS = [
     lock_screen,
     open_url,
     search_in_browser,
+    play_music,
     get_time,
     get_weather,
     web_search,

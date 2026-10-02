@@ -102,7 +102,7 @@ def match_command(text: str) -> Command | None:
 
     if t in {"pause", "pause music", "pause the music", "stop the music", "stop music"}:
         return Command("pause", lambda: system.media("pause"))
-    if t in {"play", "resume", "play music", "resume music", "resume the music", "unpause"}:
+    if t in {"play", "resume", "resume music", "resume the music", "unpause"}:
         return Command("play", lambda: system.media("play"))
     if t in {"next", "skip", "next song", "next track", "skip this", "skip song", "skip this song"}:
         return Command("next", lambda: system.media("next"))
@@ -110,6 +110,9 @@ def match_command(text: str) -> Command | None:
         return Command("previous", lambda: system.media("previous"))
     if t in {"whats playing", "what song is this", "whats this song", "who is this"}:
         return Command("now_playing", system.now_playing)
+
+    if command := _match_play(t):
+        return command
 
     if t in {"what time is it", "whats the time", "time", "the time", "tell me the time"}:
         return Command("time", _wrap(info.get_time))
@@ -185,17 +188,38 @@ def _match_site(t: str) -> Command | None:
     return None
 
 
+ANY_MUSIC = r"(?:some |a |any )?(?:music|song|songs|something|anything|a track)"
+WHERE = rf"(?: on youtube)?(?: (?:in|on|using) (?:the )?(?P<browser>{BROWSER}))?"
+
+
+def _match_play(t: str) -> Command | None:
+    """ "play some music", "play something chill", "play talha anjum (on youtube) (in brave)"."""
+    if m := re.fullmatch(rf"(?:play|put on) {ANY_MUSIC}(?: (?:that is |thats |to |for |that )?(?!(?:in|on|using) )(?P<mood>[\w ]+?))?{WHERE}", t):
+        mood, browser = m.group("mood") or "", _browser(m)
+        return Command("play_music", lambda: system.play_youtube("", browser, mood))
+    if m := re.fullmatch(rf"(?:play|put on) (?P<q>.+?){WHERE}", t):
+        query, browser = re.sub(r"^(?:some|a|an|the) ", "", m.group("q")), _browser(m)
+        if query in {"next", "previous", "the next song", "the previous song", "it", "that", "again"}:
+            return None
+        return Command("play_music", lambda: system.play_youtube(query, browser))
+    return None
+
+
+def _browser(m: re.Match) -> str:
+    return (m.groupdict().get("browser") or "").removesuffix(" browser").strip()
+
+
 def _match_search(t: str) -> Command | None:
     """Browser searches: "open brave and search talha anjum", "search X on youtube", "google X"."""
     patterns = [
         # open brave and search X / brave search X
         (rf"(?:open |launch |go to )?(?:the )?(?P<browser>{BROWSER})(?: and)? {SEARCH_VERB} (?P<q>.+)", "google"),
-        # open youtube and search X / youtube play X
-        (rf"(?:open |go to )?youtube(?: and)? (?:{SEARCH_VERB}|play) (?P<q>.+?)(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
+        # open youtube and search X
+        (rf"(?:open |go to )?youtube(?: and)? {SEARCH_VERB} (?P<q>.+?)(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
         # search youtube for X (in brave)
         (rf"{SEARCH_VERB} youtube for (?P<q>.+?)(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
-        # search X on youtube (in brave) / play X on youtube
-        (rf"(?:{SEARCH_VERB}|play) (?P<q>.+?) on youtube(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
+        # search X on youtube (in brave)
+        (rf"{SEARCH_VERB} (?P<q>.+?) on youtube(?: in (?:the )?(?P<browser>{BROWSER}))?", "youtube"),
         # search X on/in brave
         (rf"{SEARCH_VERB} (?P<q>.+?) (?:on|in|using) (?:the )?(?P<browser>{BROWSER})", "google"),
         # search X / google X

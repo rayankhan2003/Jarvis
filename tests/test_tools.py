@@ -248,3 +248,104 @@ async def test_open_site_in_a_browser(monkeypatch):
     result = await system.open_site("youtube", "brave")
     assert result.say == "Opening YouTube in Brave Browser."
     assert calls == [("open", "-a", "Brave Browser", "https://www.youtube.com")]
+
+
+@pytest.mark.parametrize(
+    "mood, hour, expected",
+    [("workout", 10, "workout music mix"), ("studying", 10, "lofi music for studying"),
+     ("chill", 10, "chill music mix"), ("", 9, "morning chill songs mix"), ("", 23, "late night lofi mix")],
+)
+def test_pick_music(mood, hour, expected):
+    assert system.pick_music(mood, hour) == expected
+
+
+RESULTS_PAGE = 'var ytInitialData = {"contents":{"x":[{"videoRenderer":{"videoId":"dQw4w9WgXcQ","title":{}}}]}};'
+
+
+async def test_play_opens_a_youtube_mix(monkeypatch):
+    calls = []
+
+    async def fake_find(query):
+        calls.append(("find", query))
+        return "dQw4w9WgXcQ"
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "find_youtube_video", fake_find)
+    monkeypatch.setattr(system, "run", fake_run)
+    result = await system.play_youtube("talha anjum", "brave")
+    assert result.ok and result.say == "Playing talha anjum on YouTube."
+    assert calls == [("find", "talha anjum"),
+                     ("open", "-a", "Brave Browser",
+                      "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1")]
+
+
+async def test_play_without_a_song_picks_one(monkeypatch):
+    found = []
+
+    async def fake_find(query):
+        found.append(query)
+        return "dQw4w9WgXcQ"
+
+    async def fake_run(*cmd, timeout=10.0):
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "find_youtube_video", fake_find)
+    monkeypatch.setattr(system, "run", fake_run)
+    result = await system.play_youtube(mood="workout")
+    assert found == ["workout music mix"] and result.say == "Playing some music on YouTube."
+
+
+async def test_play_falls_back_to_results_if_no_video_found(monkeypatch):
+    calls = []
+
+    async def fake_find(query):
+        return None
+
+    async def fake_run(*cmd, timeout=10.0):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(system, "find_youtube_video", fake_find)
+    monkeypatch.setattr(system, "run", fake_run)
+    result = await system.play_youtube("kaavish")
+    assert result.ok and "here are YouTube results" in result.say
+    assert calls == [("open", "https://www.youtube.com/results?search_query=kaavish")]
+
+
+@pytest.mark.parametrize(
+    "page, video",
+    [(RESULTS_PAGE, "dQw4w9WgXcQ"), ('{"videoId":"abcdefghijk"}', "abcdefghijk"),
+     ('<a href="/watch?v=ZYXWVUTSRQP">', "ZYXWVUTSRQP"), ("<html>consent</html>", None)],
+)
+async def test_find_youtube_video_reads_the_results_page(monkeypatch, page, video):
+    import aiohttp
+
+    class FakeResponse:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def text(self):
+            return page
+
+    class FakeSession:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def get(self, url, headers=None):
+            assert "search_query=talha+anjum" in url
+            return FakeResponse()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", FakeSession)
+    assert await system.find_youtube_video("talha anjum") == video

@@ -339,3 +339,85 @@ async def sleep_mac() -> Result:
     if code:
         return Result(False, f"I couldn't put the Mac to sleep: {err}.")
     return Result(True, "Good night.")
+
+
+# --- Playing on YouTube -----------------------------------------------------
+
+YOUTUBE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/126.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+# Most specific first: the first search result, then any video on the page.
+VIDEO_IDS = [
+    re.compile(r'"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"'),
+    re.compile(r'"videoId":"([A-Za-z0-9_-]{11})"'),
+    re.compile(r"/watch\?v=([A-Za-z0-9_-]{11})"),
+]
+
+# What Jarvis puts on when you just say "play some music".
+MOOD_QUERIES = {
+    "chill": "chill music mix",
+    "relaxing": "relaxing music mix",
+    "upbeat": "upbeat feel good songs mix",
+    "happy": "feel good songs mix",
+    "sad": "sad songs mix",
+    "romantic": "romantic songs mix",
+    "focus": "lofi music for studying",
+    "study": "lofi music for studying",
+    "work": "focus music for work",
+    "workout": "workout music mix",
+    "gym": "workout music mix",
+    "party": "party songs mix",
+    "sleep": "calm sleep music",
+}
+
+
+def pick_music(mood: str = "", hour: int | None = None) -> str:
+    """A search for when the user doesn't name a song: by mood, else by time of day."""
+    mood = mood.strip().lower()
+    for word in sorted(MOOD_QUERIES, key=len, reverse=True):  # "workout" before "work"
+        if word in mood:
+            return MOOD_QUERIES[word]
+    hour = datetime.now().hour if hour is None else hour
+    if 5 <= hour < 12:
+        return "morning chill songs mix"
+    if 12 <= hour < 18:
+        return "popular songs mix"
+    if 18 <= hour < 23:
+        return "evening chill songs mix"
+    return "late night lofi mix"
+
+
+async def find_youtube_video(query: str) -> str | None:
+    """ID of the first video in YouTube's results, read from the results page (no API key)."""
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
+            async with session.get(search_url(query, "youtube"), headers=YOUTUBE_HEADERS) as resp:
+                page = await resp.text()
+    except Exception:
+        return None
+    for pattern in VIDEO_IDS:
+        if match := pattern.search(page):
+            return match.group(1)
+    return None
+
+
+async def play_youtube(query: str = "", browser: str = "", mood: str = "") -> Result:
+    """Start playing on YouTube; a "mix" keeps similar songs coming after the first."""
+    chosen = query.strip() or pick_music(mood)
+    video = await find_youtube_video(chosen)
+    if not video:
+        # Can't find a video to start: show the results instead of failing silently.
+        result = await search_in_browser(chosen, browser, "youtube")
+        if result.ok:
+            result.say = f"I couldn't start it directly, so here are YouTube results for {chosen}."
+        return result
+    url = f"https://www.youtube.com/watch?v={video}&list=RD{video}&start_radio=1"
+    result = await open_url(url, browser)
+    if not result.ok:
+        return result
+    what = query.strip() or "some music"
+    return Result(True, f"Playing {what} on YouTube.", {**result.data, "query": chosen, "video": video})
