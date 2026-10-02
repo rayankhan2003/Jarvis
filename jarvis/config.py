@@ -50,7 +50,7 @@ class Config:
     local_stt: bool = False  # MLX Whisper on Apple Silicon instead of Groq
 
     # Voice
-    voice: str = "bm_george"  # Kokoro British male voices: bm_george, bm_lewis, bm_daniel, bm_fable
+    voice: str = "af_heart"  # Kokoro's best-rated voice; `jarvis voices` plays the others
 
     # Wake word
     always_listen: bool = False

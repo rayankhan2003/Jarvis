@@ -36,6 +36,7 @@ from jarvis.router import BrainRouter, ModelRouter
 from jarvis.timers import TIMERS
 from jarvis.tools import ALL_TOOLS, info, system
 from jarvis.usage import Usage, UsageMeter
+from jarvis.voices import language_for
 from jarvis.wake import WakeWordGate, load_wake_model
 
 REASONING = {"low", "medium", "high"}
@@ -120,7 +121,7 @@ async def run_jarvis(config: Config):
     transport = LocalAudioTransport(LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True))
     stt = make_stt(config)
     llms = make_llms(config, prompt)
-    tts = KokoroTTSService(settings=KokoroTTSService.Settings(voice=config.voice, language=Language.EN_GB))
+    tts = KokoroTTSService(settings=KokoroTTSService.Settings(voice=config.voice, language=language_for(config.voice)))
 
     switcher = LLMSwitcher(llms=llms, strategy_type=FreeTierFailover) if len(llms) > 1 else None
     brain = switcher or llms[0]

@@ -166,7 +166,9 @@ def synthesize(config: Config) -> tuple[np.ndarray, int, float, float]:
     kokoro = Kokoro(str(model), str(voices))
     load = time.perf_counter() - start
     start = time.perf_counter()
-    samples, rate = kokoro.create(TEST_SENTENCE, voice=config.voice, speed=1.0, lang="en-gb")
+    from jarvis.voices import kokoro_lang
+
+    samples, rate = kokoro.create(TEST_SENTENCE, voice=config.voice, speed=1.0, lang=kokoro_lang(config.voice))
     return samples, rate, load, time.perf_counter() - start
 
 

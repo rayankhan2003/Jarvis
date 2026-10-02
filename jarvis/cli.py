@@ -21,6 +21,8 @@ def main(argv: list[str] | None = None) -> int:
     doctor = sub.add_parser("doctor", help="check this Mac, your keys and the response time")
     doctor.add_argument("--no-mic", action="store_true", help="skip the microphone recording")
     sub.add_parser("usage", help="show today's free-tier usage")
+    voices = sub.add_parser("voices", help="hear the available voices and pick one")
+    voices.add_argument("names", nargs="*", help="only these voices, e.g. af_heart bf_emma")
     say = sub.add_parser("say", help="run a typed command through the instant-command path")
     say.add_argument("text", nargs="+")
     args = parser.parse_args(argv)
@@ -32,6 +34,11 @@ def main(argv: list[str] | None = None) -> int:
         from jarvis.doctor import main as doctor_main
 
         return doctor_main(skip_mic=args.no_mic)
+
+    if args.command == "voices":
+        from jarvis.voices import audition
+
+        return audition(args.names, current=Config.load().voice)
 
     if args.command == "usage":
         from jarvis.usage import Usage, report

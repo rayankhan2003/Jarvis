@@ -99,7 +99,7 @@ Try instant commands without speaking: `jarvis say "volume 30"`. See today's fre
 
 All settings live in `.env`; see [`.env.example`](.env.example). The most useful ones:
 
-- `JARVIS_VOICE`: Kokoro voice (`bm_george`, `bm_lewis`, `bm_daniel`, `bm_fable`, …)
+- `JARVIS_VOICE`: Kokoro voice, default `af_heart` (Kokoro's best rated). Run `jarvis voices` to hear the options
 - `JARVIS_USER_NAME`, `JARVIS_HONORIFIC`: how Jarvis addresses you
 - `JARVIS_INTERRUPTIONS=1`: talk over Jarvis to interrupt it (headphones only)
 - `JARVIS_WAKE_THRESHOLD`: lower it if Jarvis misses "Hey Jarvis", raise it if it wakes by itself

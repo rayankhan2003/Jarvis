@@ -122,3 +122,20 @@ async def test_remember_keeps_the_users_wording(monkeypatch, tmp_path):
     monkeypatch.setattr(fastpath, "MEMORY", memory)
     await fastpath.match_command("Jarvis, remember that my sister's name is Ayesha!").run()
     assert memory.facts == ["My sister's name is Ayesha"]
+
+
+@pytest.mark.parametrize("voice, lang", [("af_heart", "en-us"), ("am_michael", "en-us"), ("bf_emma", "en-gb"),
+                                         ("bm_george", "en-gb")])
+def test_accent_follows_the_voice(voice, lang):
+    from pipecat.transcriptions.language import Language
+
+    from jarvis.voices import kokoro_lang, language_for
+
+    assert kokoro_lang(voice) == lang
+    assert language_for(voice) == (Language.EN_GB if lang == "en-gb" else Language.EN_US)
+
+
+def test_default_voice_is_the_best_rated():
+    from jarvis.voices import VOICES
+
+    assert Config().voice == "af_heart" == VOICES[0].id and VOICES[0].grade == "A"
