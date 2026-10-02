@@ -132,6 +132,18 @@ async def create_reminder(params: FunctionCallParams, title: str, due: str = "")
     await params.result_callback((await info.create_reminder(title, due)).as_dict())
 
 
+async def look_at_screen(params: FunctionCallParams, question: str):
+    """Take a screenshot and answer a question about what's on the user's screen; points at the right button when that helps. Use whenever the user says "this", "here", "on my screen", or asks where something is in an app.
+
+    Args:
+        question (str): The user's question, e.g. "Where is the export button?" or "What does this error mean?".
+    """
+    from jarvis import screen
+    from jarvis.overlay import OVERLAY
+
+    await params.result_callback((await screen.look(screen.CONFIG, question, OVERLAY.point)).as_dict())
+
+
 async def remember(params: FunctionCallParams, fact: str):
     """Save something about the user to remember from now on, e.g. a name, preference or plan.
 
@@ -172,4 +184,5 @@ ALL_TOOLS = [
     create_reminder,
     set_timer,
     remember,
+    look_at_screen,
 ]

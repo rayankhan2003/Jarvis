@@ -39,6 +39,18 @@ Built on [Pipecat](https://github.com/pipecat-ai/pipecat), an open-source framew
 | **Switching provider mid-conversation.** Gemini leaves Gemini-only "thought signatures" in the context, which other providers can't read. | On every switch, provider-specific messages from other providers are dropped from the context. |
 | **Not lying about actions.** | Every tool returns `ok` plus a message and never raises, and the persona prompt forbids claiming an action succeeded when it didn't. |
 
+## Seeing and pointing (Clicky-style)
+
+Hold **right ⌥ Option** and ask about what's on screen: "what's this error?", "where's the export button?", "how do I add a filter in this app?". Jarvis takes a screenshot, answers out loud, and the **cursor buddy** (a small dot that follows your mouse, green while listening, amber while thinking, blue while talking) flies to the button.
+
+Inspired by [Clicky](https://github.com/farzaa/clicky), rebuilt on free providers. Finding the button is the part free vision models are worst at, so the model only names the element and Jarvis finds it exactly, cheapest first (an idea from [clicky-windows](https://github.com/Bitshank-2338/clicky-windows)):
+
+1. **The Mac's accessibility tree**: exact positions of buttons, menus and fields, ~0.1 s, no AI
+2. **Apple's built-in text recognition** on the screenshot, for apps with no accessibility info, no AI
+3. **The model's rough position**, as a last resort
+
+The screenshot is shrunk to the screen's own 16:10 shape before the model sees it (a trick from Clicky that improves position accuracy). macOS asks once for Screen Recording, Accessibility and Input Monitoring permission for your terminal; `jarvis doctor` checks all three.
+
 ## Setup (macOS, Apple Silicon)
 
 ```bash
@@ -90,6 +102,8 @@ By default Jarvis ignores the microphone while it is speaking, so it works on la
 | "Remember that my sister's name is Ayesha" / "what do you know about me?" / "forget my sister's name" | Saves, recalls or forgets facts about you | instant |
 | "What's the weather?" / "how's the weather in Lahore?" | Weather for your city or the one you name | instant |
 | "Explain how black holes work" / "should I learn Rust or Go?" | Answered by the big brain | brain (GPT-OSS 120B) |
+| Hold right ⌥ and talk | Push-to-talk, no wake word needed | — |
+| "What's on my screen?" / "explain this error" / "where's the export button?" | Answers from a screenshot and points at the button | vision |
 | "That's all" | Jarvis goes back to sleep | instant |
 | "Shut down" / "close Jarvis" | Says goodbye and quits Jarvis | instant |
 
@@ -110,6 +124,25 @@ All settings live in `.env`; see [`.env.example`](.env.example). The most useful
 - `OLLAMA_MODEL`: optional offline brain, e.g. `qwen3.5:4b`
 - `JARVIS_LOCAL_STT=1`: transcribe on the Mac with MLX Whisper (`pip install -e ".[local-stt]"`)
 
+## Running fully local (16–32 GB Macs)
+
+On an 8 GB Mac the brain and vision run on free cloud tiers. With more memory everything can run on the Mac: no limits, works offline, nothing leaves the machine.
+
+```bash
+ollama pull qwen3.5:14b && ollama pull qwen2.5vl:7b
+pip install -e ".[local-stt]"
+```
+
+```
+JARVIS_BRAIN_ORDER=ollama,mistral,groq     # local first, cloud as backup
+OLLAMA_MODEL=qwen3.5:14b                   # 32 GB: a ~30B model also fits
+JARVIS_LOCAL_STT=1                          # MLX Whisper on the Mac
+JARVIS_VISION_ORDER=ollama,gemini
+OLLAMA_VISION_MODEL=qwen2.5vl:7b
+```
+
+`jarvis doctor` times each part so you can compare against the cloud.
+
 ## Development
 
 ```bash
@@ -128,6 +161,10 @@ jarvis/
   conversation.py  keeps the context sent to the brain small
   usage.py      local free-tier usage counter (`jarvis usage`)
   memory.py     facts about the user, kept on the Mac
+  ptt.py        push-to-talk (Quartz event tap)
+  screen.py     screenshot, vision models, finding elements (accessibility, OCR)
+  buddy.py      the cursor buddy's behaviour (pure logic)
+  overlay_app.py   the buddy's transparent window (PyObjC, its own process)
   timers.py     timers and alarms
   persona.py    system prompt
   doctor.py     `jarvis doctor` setup and latency checks
@@ -141,7 +178,7 @@ jarvis/
 - [x] **Timers, alarms and system controls** as instant commands
 - [ ] **Phase 2: Hands.** Files, terminal and git with confirmation before anything risky; Calendar through EventKit
 - [x] **Smarter brain.** Big brain for complex requests, memory, profile, web pages instead of snippets
-- [ ] **Phase 3: Eyes.** "What's on my screen?"
+- [x] **Eyes.** Push-to-talk, cursor buddy, "what's on my screen?", pointing at buttons
 - [ ] **Phase 4: HUD.** A Three.js interface that shows the voice, tool calls and system status live
 - [ ] **Phase 5: Proactive.** Morning briefing, meeting and build-failure alerts
 
@@ -151,3 +188,4 @@ jarvis/
 - [Pipecat](https://github.com/pipecat-ai/pipecat): BSD 2-Clause
 - [openWakeWord](https://github.com/dscripka/openWakeWord): Apache 2.0; its pre-trained **"hey jarvis" model is CC BY-NC-SA 4.0 (non-commercial use only)**
 - [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) voice model: Apache 2.0
+- Ideas from [Clicky](https://github.com/farzaa/clicky) (MIT) and [clicky-windows](https://github.com/Bitshank-2338/clicky-windows) (MIT); no code copied

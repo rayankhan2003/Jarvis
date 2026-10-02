@@ -25,6 +25,7 @@ SAMPLE_RATE = 16000
 CHUNK = 1280  # openWakeWord expects 80 ms frames at 16 kHz
 SPEECH_RMS = 400  # int16 RMS above which we treat the mic as "someone is talking"
 ECHO_TAIL_SECS = 0.4  # keep ignoring the mic briefly after Jarvis stops, for room echo
+RELEASE_TAIL_SECS = 0.8  # after push-to-talk is released, send silence so the turn ends promptly
 
 
 def load_wake_model(name: str = "hey_jarvis"):
@@ -38,8 +39,13 @@ def load_wake_model(name: str = "hey_jarvis"):
 class WakeWordGate(FrameProcessor):
     """Drops microphone audio until the wake word is detected.
 
+    Push-to-talk works through ``hold`` and ``release``: while the key is held
+    the microphone goes straight through; after release a moment of silence
+    is sent, so voice activity detection ends the turn immediately.
+
     Args:
-        model: An openWakeWord ``Model`` (see ``load_wake_model``).
+        model: An openWakeWord ``Model`` (see ``load_wake_model``), or None for
+            push-to-talk only.
         threshold: Detection score (0-1) that counts as the wake word.
         awake_secs: Seconds of quiet (no one talking) before going back to sleep.
         on_wake: Called when the wake word is detected.
@@ -72,6 +78,8 @@ class WakeWordGate(FrameProcessor):
         self._buffer = np.zeros(0, dtype=np.int16)
         self._awake_until = 0.0
         self._bot_speaking = False
+        self._held = False
+        self._release_tail_until = float("-inf")
 
     @property
     def awake(self) -> bool:
@@ -84,7 +92,26 @@ class WakeWordGate(FrameProcessor):
                 self._on_wake()
         self._awake_until = self._clock() + self._awake_secs
         self._buffer = np.zeros(0, dtype=np.int16)
-        self._model.reset()
+        if self._model is not None:
+            self._model.reset()
+
+    def hold(self):
+        """Push-to-talk key pressed (key repeat calls this again; that's fine)."""
+        if self._held:
+            return
+        self._held = True
+        self._release_tail_until = float("-inf")
+        self.wake()
+
+    def release(self):
+        """Push-to-talk key released."""
+        if not self._held:
+            return
+        self._held = False
+        self._release_tail_until = self._clock() + RELEASE_TAIL_SECS
+        if self._model is None:
+            # Push-to-talk only: listen again only when the key is pressed again.
+            self._awake_until = self._release_tail_until
 
     def sleep(self):
         if self.awake:
@@ -108,6 +135,10 @@ class WakeWordGate(FrameProcessor):
             self._extend()
 
         if isinstance(frame, InputAudioRawFrame) and direction == FrameDirection.DOWNSTREAM:
+            if self._in_release_tail():
+                frame.audio = bytes(len(frame.audio))  # true silence ends the turn
+                await self.push_frame(frame, direction)
+                return
             if self._handle_audio(frame):
                 await self.push_frame(frame, direction)
             return
@@ -118,7 +149,15 @@ class WakeWordGate(FrameProcessor):
         """Returns True if the audio should be passed on."""
         samples = np.frombuffer(frame.audio, dtype=np.int16)
 
+        if self._held:
+            self._extend()
+            return True
+
         if self.awake:
+            if self._model is None:
+                # Push-to-talk only: the key, not the room, decides when Jarvis listens.
+                self.sleep()
+                return False
             if self._mute_while_speaking and self._hearing_jarvis():
                 self._extend()
                 return False
@@ -134,6 +173,9 @@ class WakeWordGate(FrameProcessor):
             self._buffer = np.zeros(0, dtype=np.int16)
             return False
 
+        if self._model is None:  # push-to-talk only
+            return False
+
         if frame.sample_rate != SAMPLE_RATE:
             logger.warning(f"Wake word needs {SAMPLE_RATE} Hz audio, got {frame.sample_rate} Hz")
             return False
@@ -146,6 +188,9 @@ class WakeWordGate(FrameProcessor):
                 self.wake()
                 return True
         return False
+
+    def _in_release_tail(self) -> bool:
+        return not self._held and self._clock() < self._release_tail_until
 
     def _hearing_jarvis(self) -> bool:
         return self._bot_speaking or self._clock() - self._bot_stopped_at < ECHO_TAIL_SECS

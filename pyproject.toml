@@ -18,6 +18,12 @@ dependencies = [
     "python-dotenv>=1.0",
     "numpy>=1.26",
     "aiohttp>=3.9",
+    "pillow>=10",
+    # macOS: push-to-talk, the cursor buddy, reading the screen
+    "pyobjc-framework-Cocoa>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=11; sys_platform == 'darwin'",
+    "pyobjc-framework-Vision>=11; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

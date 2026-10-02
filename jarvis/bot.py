@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 
@@ -26,12 +27,14 @@ from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransp
 from pipecat.turns.user_mute import AlwaysUserMuteStrategy
 from pipecat.workers.runner import WorkerRunner
 
-from jarvis import conversation
+from jarvis import conversation, screen
 from jarvis.config import Config
 from jarvis.failover import FreeTierFailover, keep_only_messages_for
 from jarvis.fastpath import FastPath
 from jarvis.memory import MEMORY
+from jarvis.overlay import OVERLAY, OverlayStatus
 from jarvis.persona import system_prompt
+from jarvis.ptt import PushToTalk
 from jarvis.router import BrainRouter, ModelRouter
 from jarvis.timers import TIMERS
 from jarvis.tools import ALL_TOOLS, info, system
@@ -158,23 +161,51 @@ async def run_jarvis(config: Config):
         ),
     )
 
+    use_wake_word = config.trigger in {"wake", "both"}
+    use_key = config.trigger in {"key", "both"}
+    screen.CONFIG = config
+    if config.buddy:
+        OVERLAY.start()
+
+    def woke():
+        play_wake_sound()
+        OVERLAY.status("listening")
+
+    def slept():
+        if use_wake_word:
+            # Each "Hey Jarvis" starts a fresh, small conversation. With push-to-talk only,
+            # the gate sleeps after every release, so keep the (already capped) conversation.
+            conversation.clear(context)
+        OVERLAY.status("idle")
+
     gate = None
     if not config.always_listen:
         gate = WakeWordGate(
-            load_wake_model(),
+            load_wake_model() if use_wake_word else None,
             threshold=config.wake_threshold,
             awake_secs=config.awake_secs,
-            on_wake=play_wake_sound,
+            on_wake=woke,
             mute_while_speaking=not config.interruptions,
-            # Each "Hey Jarvis" starts a fresh, small conversation.
-            on_sleep=lambda: conversation.clear(context),
+            on_sleep=slept,
         )
+
+    ptt = None
+    if gate and use_key:
+        ptt = PushToTalk(config.ptt_key, on_press=gate.hold, on_release=gate.release)
+        if not ptt.start(asyncio.get_running_loop()):
+            ptt = None
+            if not use_wake_word:
+                # Key-only, but the key can't be heard: fall back to the wake word rather than go deaf.
+                logger.warning("Push-to-talk isn't available; listening for 'Hey Jarvis' instead")
+                gate._model = load_wake_model()
+                use_wake_word = True
 
     async def dismiss():
         if gate:
             gate.sleep()
 
     async def new_user_turn():
+        OVERLAY.status("thinking")
         if switcher:
             await switcher.strategy.restore_preferred()
 
@@ -191,6 +222,7 @@ async def run_jarvis(config: Config):
         # EndFrame lets the goodbye finish playing before the pipeline stops.
         await TIMERS.cancel()
         await worker.queue_frames([EndFrame()])
+        OVERLAY.stop()
 
     fastpath = FastPath(context, on_dismiss=dismiss, on_shutdown=shutdown, on_user_turn=new_user_turn,
                         before_brain=route, usage=usage)
@@ -204,6 +236,7 @@ async def run_jarvis(config: Config):
         brain,
         tts,
         transport.output(),
+        OverlayStatus(OVERLAY),
         assistant_aggregator,
         UsageMeter(usage),
     ])
@@ -242,11 +275,21 @@ async def run_jarvis(config: Config):
 
     TIMERS.on_fire = announce
 
+    key = config.ptt_key.replace("_", " ")
     greeting = f"Jarvis online, {config.honorific}."
-    if gate:
+    if gate and ptt and use_wake_word:
+        greeting += f" Hold {key}, or say 'Hey Jarvis'."
+    elif gate and ptt:
+        greeting += f" Hold {key} to talk."
+    elif gate:
         greeting += " Say 'Hey Jarvis' when you need me."
     await worker.queue_frames([TTSSpeakFrame(greeting, append_to_context=False)])
 
     runner = WorkerRunner()
     await runner.add_workers(worker)
-    await runner.run()
+    try:
+        await runner.run()
+    finally:
+        if ptt:
+            ptt.stop()
+        OVERLAY.stop()

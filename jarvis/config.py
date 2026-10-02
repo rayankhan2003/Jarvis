@@ -52,6 +52,16 @@ class Config:
     # Voice
     voice: str = "af_heart"  # Kokoro's best-rated voice; `jarvis voices` plays the others
 
+    # How you talk to Jarvis: "both" (wake word or push-to-talk), "wake", or "key"
+    trigger: str = "both"
+    ptt_key: str = "right_option"  # hold to talk: right_option, right_command, right_control, f13...
+    buddy: bool = True  # the cursor buddy that shows what Jarvis is doing and points at things
+
+    # Seeing the screen: tried in this order
+    vision_order: tuple[str, ...] = ("mistral", "gemini", "ollama")
+    mistral_vision_model: str = "mistral-small-latest"
+    ollama_vision_model: str = ""  # e.g. "qwen2.5vl:7b" on a Mac with 16 GB+
+
     # Wake word
     always_listen: bool = False
     interruptions: bool = False  # talk over Jarvis; needs headphones
@@ -88,6 +98,14 @@ class Config:
             local_stt=_env_bool("JARVIS_LOCAL_STT", False),
             voice=_env("JARVIS_VOICE", cls.voice),
             always_listen=_env_bool("JARVIS_ALWAYS_LISTEN", False),
+            trigger=_env("JARVIS_TRIGGER", cls.trigger).lower(),
+            ptt_key=_env("JARVIS_PTT_KEY", cls.ptt_key),
+            buddy=_env_bool("JARVIS_BUDDY", True),
+            vision_order=tuple(
+                n.strip() for n in _env("JARVIS_VISION_ORDER", ",".join(cls.vision_order)).split(",") if n.strip()
+            ),
+            mistral_vision_model=_env("MISTRAL_VISION_MODEL", cls.mistral_vision_model),
+            ollama_vision_model=_env("OLLAMA_VISION_MODEL"),
             interruptions=_env_bool("JARVIS_INTERRUPTIONS", False),
             wake_threshold=_env_float("JARVIS_WAKE_THRESHOLD", cls.wake_threshold),
             awake_secs=_env_float("JARVIS_AWAKE_SECS", cls.awake_secs),

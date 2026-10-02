@@ -43,6 +43,7 @@ DISMISS = {"thats all", "thats it", "goodbye", "bye", "go to sleep", "sleep", "n
 class Command:
     name: str
     run: Callable[[], Awaitable[Result]]
+    ack: str = ""  # said straight away when the command takes a few seconds
 
 
 def normalize(text: str) -> str:
@@ -71,7 +72,7 @@ def match_command(text: str) -> Command | None:
     if re.fullmatch(r"(?:(?:close|quit|exit|shut down|shutdown|turn off|kill) (?:yourself|jarvis)|shut down|shutdown|turn yourself off)", t):
         return Command("shutdown", _ok("Shutting down. Goodbye."))
 
-    if command := _match_memory(text, t) or _match_weather(t):
+    if command := _match_memory(text, t) or _match_weather(t) or _match_screen(text, t):
         return command
 
     if command := _match_timer(t) or _match_system(t) or _match_site(t):
@@ -147,6 +148,31 @@ def _match_memory(raw: str, t: str) -> Command | None:
     if t in RECALL:
         return Command("recall", MEMORY.recall)
     return None
+
+
+SCREEN_PHRASES = re.compile(
+    r"(?:whats|what is) on (?:my|the) screen|what am i looking at|(?:whats|what is) this(?: page| app| window| error)?"
+    r"|explain this(?: page| screen| error| window)?|read this(?: page| for me)?|summari[sz]e this(?: page| screen)?"
+    r"|what does this (?:say|mean|do)|help me with this|look at (?:my|the) screen.*|can you see (?:my|the) screen"
+)
+SCREEN_ELEMENT = r"(?:button|menu|icon|tab|option|setting|settings|field|link|toggle|switch|box)"
+SCREEN_QUESTION = re.compile(
+    rf"where(?:s| is| are)(?: the)? .+ {SCREEN_ELEMENT}(?: on (?:my|the) screen)?"
+    rf"|where do i (?:click|tap|go)(?: to)? .+"
+    rf"|how do i .+ (?:here|in this app|on this page|on this screen|in this window)"
+    rf"|show me (?:where|how) .+|point (?:at|to) .+"
+)
+
+
+def _match_screen(raw: str, t: str) -> Command | None:
+    """Questions about what's on screen: answered with a screenshot, plus pointing when it helps."""
+    if not (SCREEN_PHRASES.fullmatch(t) or SCREEN_QUESTION.fullmatch(t)):
+        return None
+    question = re.sub(r"^\W*(?:(?:hey|ok|okay|hi)\s+)?jarvis\W*", "", raw.strip(), flags=re.I) or raw
+    from jarvis import screen
+    from jarvis.overlay import OVERLAY
+
+    return Command("screen", lambda: screen.look(screen.CONFIG, question, OVERLAY.point), ack="Let me look.")
 
 
 def _match_weather(t: str) -> Command | None:
@@ -343,6 +369,8 @@ class FastPath(FrameProcessor):
             await self._to_brain(frame)
             return
 
+        if command.ack:
+            await self.push_frame(TTSSpeakFrame(command.ack, append_to_context=False))
         result = await command.run()
         logger.info(f"Instant command {command.name!r}: {result.say}")
         if not result.ok and command.name in {"open_app", "quit_app"}:

@@ -331,6 +331,89 @@ async def check_ollama(session: aiohttp.ClientSession, config: Config) -> Check:
     return Check("Offline brain", OK, f"{config.ollama_model} ready")
 
 
+# ---------------------------------------------------------------- Mac permissions and vision
+
+def check_permissions(config: Config) -> list[Check]:
+    """Push-to-talk, pointing and seeing the screen each need a macOS permission."""
+    if sys.platform != "darwin":
+        return []
+    checks = []
+    where = "System Settings > Privacy & Security > {} > turn on your terminal app, then restart it"
+    try:
+        import Quartz
+
+        if config.trigger in {"key", "both"}:
+            ok = Quartz.CGPreflightListenEventAccess()
+            if not ok:
+                Quartz.CGRequestListenEventAccess()  # shows the macOS prompt
+            checks.append(Check("Input Monitoring", OK if ok else WARN,
+                                "push-to-talk can hear the key" if ok else "needed for push-to-talk",
+                                where.format("Input Monitoring")))
+        ok = Quartz.CGPreflightScreenCaptureAccess()
+        if not ok:
+            Quartz.CGRequestScreenCaptureAccess()
+        checks.append(Check("Screen Recording", OK if ok else WARN,
+                            "Jarvis can see the screen" if ok else "needed for 'what's on my screen?'",
+                            where.format("Screen Recording")))
+    except Exception as e:
+        checks.append(Check("Screen Recording", WARN, f"couldn't check: {e}", "pip install -e ."))
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+
+        ok = AXIsProcessTrusted()
+        checks.append(Check("Accessibility", OK if ok else WARN,
+                            "Jarvis can find buttons exactly" if ok else "needed to point at buttons exactly",
+                            where.format("Accessibility")))
+    except Exception as e:
+        checks.append(Check("Accessibility", WARN, f"couldn't check: {e}", "pip install -e ."))
+    return checks
+
+
+def test_image() -> bytes:
+    """A small picture with a known word, to check the vision model can read."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (480, 160), "white")
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default(size=64)
+    except TypeError:  # older Pillow
+        font = ImageFont.load_default()
+    draw.text((40, 40), "JARVIS 42", fill="black", font=font)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=90)
+    return buf.getvalue()
+
+
+async def check_vision(config: Config) -> list[Check]:
+    from jarvis import screen
+
+    providers = screen.vision_providers(config)
+    if not providers:
+        return [Check("Vision", WARN, "no vision model configured",
+                      "Add GEMINI_API_KEY or MISTRAL_API_KEY so Jarvis can see the screen")]
+    import base64
+
+    image = base64.b64encode(test_image()).decode()
+    prompt = "What text is written in this image? Reply with just the text."
+    checks = []
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for name, ask in providers:
+            start = time.perf_counter()
+            try:
+                reply = await ask(session, prompt, image)
+            except Exception as e:
+                checks.append(Check(f"Vision ({name})", WARN, str(e)[:140],
+                                    "Jarvis will try the next vision model"))
+                continue
+            took = time.perf_counter() - start
+            read = "42" in reply
+            checks.append(Check(f"Vision ({name})", OK if read else WARN,
+                                f"read \"{reply.strip()[:30]}\" in {took:.1f}s"))
+    return checks
+
+
 # ---------------------------------------------------------------- main
 
 async def run_doctor(config: Config, skip_mic: bool = False) -> int:
@@ -362,6 +445,12 @@ async def run_doctor(config: Config, skip_mic: bool = False) -> int:
         add(Check("Voice (Kokoro)", FAIL, str(e), "pip install -e . (downloads ~300 MB once)"))
         tts_first = None
 
+    permissions = check_permissions(config)
+    if permissions:
+        print("\nPermissions")
+        for check in permissions:
+            add(check)
+
     print("\nCloud (free tiers)")
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -374,6 +463,8 @@ async def run_doctor(config: Config, skip_mic: bool = False) -> int:
         stt, stt_secs = await check_groq_stt(session, config, wav)
         add(stt)
         add(await check_ollama(session, config))
+        for check in await check_vision(config):
+            add(check)
     if not config.brains():
         add(Check("Brain", FAIL, "no provider configured",
                   "Set MISTRAL_API_KEY, GROQ_API_KEY and/or GEMINI_API_KEY in .env (all free)."))
